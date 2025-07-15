@@ -1,0 +1,39 @@
+[
+  {
+    "dir": 0,
+    "uid": 1,
+    "fLvL": 2,
+    "retry": 3,
+    "mid": 4,
+    "data": {
+        "type": 0,
+        "pmsgid": 4
+    },
+    "chk": 8
+  },
+  {
+    "dir": 0,
+    "uid": 1,
+    "fLvL": 2,
+    "retry": 3,
+    "mid": 4,
+    "data": {
+        "type": 1,
+        "cmsg": "Hi, This is costom message"
+    },
+    "chk": 8
+  },
+    {
+        "dir": 0,
+        "uid": 1,
+        "fLvL": 2,
+        "retry": 3,
+        "mid": 4,
+        "data": {
+            "type": 2,
+            "lat": 12.345678,
+            "lon": 98.765432
+        },
+        "chk": 8
+    }
+]

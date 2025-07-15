@@ -1,0 +1,105 @@
+#ifndef PROTOCOL_H
+#define PROTOCOL_H
+
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <sstream>
+#include <LoRa.h>
+
+
+class Payload
+{
+protected: // List of messages
+
+    int type;
+    int did;
+    int dLvL;
+    int32_t currentMessageId = 1023; // Current message ID
+    struct myPayload {
+        int8_t dir; // Direction of the message
+        int8_t uid; // User ID
+        int8_t fLvL; // Forwarding Level
+        int8_t retry; // Retry count
+        int32_t mid; // Message ID
+        std::vector<int8_t> data; // Payload data
+        int8_t chk; // Checksum
+    } MyPayload;
+
+    // struct ack {
+    //     int8_t dir;
+    //     int8_t uid;
+    //     int8_t fLvL;
+    //     int32_t mid;
+    // };
+    // std::vector<ack> ackbucket;
+    void clearPayload();
+    int8_t calChecksumFromVector(std::vector<int8_t> payloadVector);
+    int8_t calChecksumFromPayload();
+    void setChecksum();
+    bool verifyChecksum(std::vector<int8_t> payloadVector);
+    bool conformAck(std::vector<int8_t> payloadVector);
+    void forwardPayload();
+    void loraSend();
+
+public:
+    //init
+    Payload(int type,int did,int dLvL);
+    void printDeviceInfo();
+    //set and get payloads
+    bool setPayload(std::vector<int8_t> payloadVector);
+    std::vector<int8_t> getPayload();
+    void printPayload();
+    std::string getJsonPayload(std::vector<int8_t> payloadVector);
+
+};
+
+/*
+    device types:
+    0 - base Device , ids - 0 , LvL = 0
+    1-inter Device ,ids 1-26 , LvL = 1-26
+    2-user Device , ids 27-127, LvL = 127
+
+    b2u - 0
+    u2b - 1
+
+    data types:
+    pmsg - 0
+    cmsg - 1
+    gps - 2
+
+*/
+
+class UserDevicePayload : public Payload {
+protected:
+ 
+public:
+    //u2b - 1
+    UserDevicePayload(int did): Payload(2, did, 127) {};
+    void createPmsg(int8_t pmsgid,int8_t attempts = 0);
+    void createCmsg(std::string cmsg,int8_t attempts = 0);
+    void createGps(float latitude, float longitude, int8_t attempts = 0);
+
+    bool verifyRelation(std::vector<int8_t> payloadVector);
+    // receive payload from base device only pmsg and cmsg
+    void receive(std::vector<int8_t> payloadVector);
+
+    // std::vector<inbox> getInbox();
+
+
+};
+class InterDevicePayload : public Payload {
+public:
+    InterDevicePayload(int did,int dLvL): Payload(1, did, dLvL) {};
+
+};
+
+class BaseDevicePayload : public Payload {
+public:
+    BaseDevicePayload(int did): Payload(0,did, 0) {}; 
+    void createPmsg(int8_t pmsgid,int8_t attempts = 0);
+    void createCmsg(std::string cmsg,int8_t attempts = 0);
+    void createGps(float latitude, float longitude, int8_t attempts = 0);
+};
+
+#endif
