@@ -26,13 +26,12 @@ protected: // List of messages
         int8_t chk; // Checksum
     } MyPayload;
 
-    // struct ack {
-    //     int8_t dir;
-    //     int8_t uid;
-    //     int8_t fLvL;
-    //     int32_t mid;
-    // };
-    // std::vector<ack> ackbucket;
+    struct ack {
+        int8_t uid;
+        int32_t mid;
+    };
+    std::vector<ack> ackbucket;
+
     void clearPayload();
     int8_t calChecksumFromVector(std::vector<int8_t> payloadVector);
     int8_t calChecksumFromPayload();
@@ -40,9 +39,9 @@ protected: // List of messages
     bool verifyChecksum(std::vector<int8_t> payloadVector);
     bool conformAck(std::vector<int8_t> payloadVector);
     void forwardPayload();
-    void loraSend();
-
+    
 public:
+    void loraSend(); // sending current payload in MyPayload
     //init
     Payload(int type,int did,int dLvL);
     void printDeviceInfo();
@@ -72,6 +71,7 @@ public:
 
 class UserDevicePayload : public Payload {
 protected:
+    std::vector<std::string> inboxbucket; // Inbox for user device messages
  
 public:
     //u2b - 1
@@ -84,10 +84,11 @@ public:
     // receive payload from base device only pmsg and cmsg
     void receive(std::vector<int8_t> payloadVector);
 
-    // std::vector<inbox> getInbox();
-
-
+    std::vector<std::string> getInbox();
 };
+
+
+
 class InterDevicePayload : public Payload {
 public:
     InterDevicePayload(int did,int dLvL): Payload(1, did, dLvL) {};

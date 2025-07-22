@@ -40,6 +40,7 @@ void loop() {
     userDevice66.createPmsg(4);
     std::vector<int8_t> payload66 = userDevice66.getPayload();
     std::string jsonPayload66 = userDevice66.getJsonPayload(payload66);
+    userDevice66.loraSend();
     Serial.println(jsonPayload66.c_str());
 
     // sendPayload(payload66);

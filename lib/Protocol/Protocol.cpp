@@ -102,26 +102,16 @@ bool Payload::verifyChecksum(std::vector<int8_t> payloadVector)
 }
 bool Payload::conformAck(std::vector<int8_t> payloadVector)
 {
-    // struct ack receivedAck =
-    // {
-    //     payloadVector[0],
-    //     payloadVector[1],
-    //     payloadVector[2],
-    //     int8ToInt32(payloadVector[4], payloadVector[5], payloadVector[6], payloadVector[7])
-    // };
-    // for (const auto &ack : ackbucket)
-    // {
-    //     if (ack.dir == receivedAck.dir &&
-    //         ack.uid == receivedAck.uid &&
-    //         ack.fLvL == receivedAck.fLvL &&
-    //         ack.mid == receivedAck.mid)
-    //     {   
-    //         ackbucket.erase(std::remove(ackbucket.begin(), ackbucket.end(), ack), ackbucket.end());
-    //         return true; // Match found
-    //     }
-    // }
-    return false; // No match found
+    for (auto it = ackbucket.begin(); it != ackbucket.end(); ++it) {
+        if (it->uid == payloadVector[0] && it->mid == int8ToInt32(payloadVector[4], payloadVector[5], payloadVector[6], payloadVector[7])) {
+            ackbucket.erase(it);
+            return false;
+        }
+    }
+    return true;
 }
+
+
 void Payload::forwardPayload()
 {
     MyPayload.fLvL = dLvL;
@@ -351,26 +341,26 @@ void UserDevicePayload::receive(std::vector<int8_t> payloadVector)
     bool pass1 = Payload::verifyChecksum(payloadVector);
     bool pass2 = Payload::conformAck(payloadVector);
     bool pass3 = UserDevicePayload::verifyRelation(payloadVector);
-    // if (pass1 && !pass2 && pass3){
-    //     if(payloadVector[8] == 0) // pmsg
-    //     {   
-    //         inboxbucket.push_back({int8ToInt32(payloadVector[4], payloadVector[5], payloadVector[6], payloadVector[7]), pmsgListForBase[payloadVector[9]]});
-    //     }
-    //     else if (payloadVector[8] == 1) // cmsg
-    //     {
-    //         std::string message(payloadVector.begin() + 9, payloadVector.end() - 1); // Exclude checksum
-    //         inboxbucket.push_back({int8ToInt32(payloadVector[4], payloadVector[5], payloadVector[6], payloadVector[7]), message});
-    //     }
-    //     forwardPayload(); // Set the payload after processing
-    // }
+    if (pass1 && !pass2 && pass3){
+        if(payloadVector[8] == 0) // pmsg
+        {   
+            inboxbucket.push_back(pmsgListForBase[payloadVector[9]]);
+        }
+        else if (payloadVector[8] == 1) // cmsg
+        {
+            std::string message(payloadVector.begin() + 9, payloadVector.end() - 1); // Exclude checksum
+            inboxbucket.push_back(message);
+        }
+        forwardPayload(); // Set the payload after processing
+    }
 
 
 }
 
-// std::vector<inbox> UserDevicePayload::getInbox()
-// {
-//     return inboxbucket;
-// }
+std::vector<std::string> UserDevicePayload::getInbox()
+{
+    return inboxbucket;
+}
 
 void BaseDevicePayload::createPmsg(int8_t pmsgid, int8_t attempts)
 {

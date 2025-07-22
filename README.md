@@ -22,3 +22,12 @@ This project is designed for ESP32 development using PlatformIO. It includes a s
 
 ## License
 This project is licensed under the MIT License.
+
+
+```c++
+UserDevicePayload userDevice66(66);
+userDevice66.createPmsg(4);
+userDevice66.loraSend();
+std::string jsonPayload66 = userDevice66.getJsonPayload(payload66);
+Serial.println(jsonPayload66.c_str());
+```
