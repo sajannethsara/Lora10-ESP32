@@ -7,31 +7,32 @@
 #include <sstream>
 #include <LoRa.h>
 
-
 class Payload
 {
 protected: // List of messages
-
     int type;
     int did;
     int dLvL;
     int32_t currentMessageId = 1023; // Current message ID
-    struct myPayload {
-        int8_t dir; // Direction of the message
-        int8_t uid; // User ID
-        int8_t fLvL; // Forwarding Level
-        int8_t retry; // Retry count
-        int32_t mid; // Message ID
+    struct myPayload
+    {
+        int8_t dir;               // Direction of the message
+        int8_t uid;               // User ID
+        int8_t fLvL;              // Forwarding Level
+        int8_t retry;             // Retry count
+        int32_t mid;              // Message ID
         std::vector<int8_t> data; // Payload data
-        int8_t chk; // Checksum
+        int8_t chk;               // Checksum
     } MyPayload;
 
-    struct ack {
+    struct ack
+    {
         int8_t uid;
         int32_t mid;
     };
     std::vector<ack> ackbucket;
 
+public:
     void clearPayload();
     int8_t calChecksumFromVector(std::vector<int8_t> payloadVector);
     int8_t calChecksumFromPayload();
@@ -39,18 +40,16 @@ protected: // List of messages
     bool verifyChecksum(std::vector<int8_t> payloadVector);
     bool conformAck(std::vector<int8_t> payloadVector);
     void forwardPayload();
-    
-public:
+
     void loraSend(); // sending current payload in MyPayload
-    //init
-    Payload(int type,int did,int dLvL);
+    // init
+    Payload(int type, int did, int dLvL);
     void printDeviceInfo();
-    //set and get payloads
+    // set and get payloads
     bool setPayload(std::vector<int8_t> payloadVector);
     std::vector<int8_t> getPayload();
     void printPayload();
-    std::string getJsonPayload(std::vector<int8_t> payloadVector);
-
+    std::string getJsonPayload();
 };
 
 /*
@@ -69,15 +68,16 @@ public:
 
 */
 
-class UserDevicePayload : public Payload {
+class UserDevicePayload : public Payload
+{
 protected:
     std::vector<std::string> inboxbucket; // Inbox for user device messages
- 
+
 public:
-    //u2b - 1
-    UserDevicePayload(int did): Payload(2, did, 127) {};
-    void createPmsg(int8_t pmsgid,int8_t attempts = 0);
-    void createCmsg(std::string cmsg,int8_t attempts = 0);
+    // u2b - 1
+    UserDevicePayload(int did) : Payload(2, did, 127) {};
+    void createPmsg(int8_t pmsgid, int8_t attempts = 0);
+    void createCmsg(std::string cmsg, int8_t attempts = 0);
     void createGps(float latitude, float longitude, int8_t attempts = 0);
 
     bool verifyRelation(std::vector<int8_t> payloadVector);
@@ -87,20 +87,28 @@ public:
     std::vector<std::string> getInbox();
 };
 
-
-
-class InterDevicePayload : public Payload {
+class InterDevicePayload : public Payload
+{
 public:
-    InterDevicePayload(int did,int dLvL): Payload(1, did, dLvL) {};
+    InterDevicePayload(int did, int dLvL) : Payload(1, did, dLvL) {};
+    bool verifyRelation(std::vector<int8_t> payloadVector);
+    void createPmsg(int8_t pmsgid, int8_t newUid, int8_t attempts = 0);
+    bool receive(std::vector<int8_t> payloadVector);
+    void setPayloadForward(std::vector<int8_t> payloadVector);
+private:
+
 
 };
 
-class BaseDevicePayload : public Payload {
+class BaseDevicePayload : public Payload
+{
 public:
-    BaseDevicePayload(int did): Payload(0,did, 0) {}; 
-    void createPmsg(int8_t pmsgid,int8_t attempts = 0);
-    void createCmsg(std::string cmsg,int8_t attempts = 0);
-    void createGps(float latitude, float longitude, int8_t attempts = 0);
+    BaseDevicePayload(int did) : Payload(0, did, 0) {};
+    void createPmsg(int8_t pmsgid, int8_t newUid, int8_t attempts = 0);
+    void createCmsg(std::string cmsg, int8_t newUid, int8_t attempts = 0);
+    void createGps(float latitude, float longitude, int8_t newUid, int8_t attempts = 0);
+
+    bool receive(std::vector<int8_t> payloadVector);
 };
 
 #endif

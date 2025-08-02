@@ -1,39 +1,39 @@
 #include "Protocol.h"
 
 const std::string pmsgListForUser[] = {
-    "Reached checkpoint",          // 0
-    "Started hike",                // 1
-    "Taking a break",              // 2
-    "Low battery",                 // 3
-    "Need help",                   // 4
-    "Lost, need directions",       // 5
-    "Injured, need assistance",    // 6
-    "Returning to base",           // 7
-    "Reached destination",         // 8
-    "Wild animal sighted",         // 9
-    "Rain started",                // 10
-    "Too dark to proceed",         // 11
-    "All good",                    // 12
-    "Slow progress",               // 13
-    "No GPS signal"                // 14
+    "Reached checkpoint",       // 0
+    "Started hike",             // 1
+    "Taking a break",           // 2
+    "Low battery",              // 3
+    "Need help",                // 4
+    "Lost, need directions",    // 5
+    "Injured, need assistance", // 6
+    "Returning to base",        // 7
+    "Reached destination",      // 8
+    "Wild animal sighted",      // 9
+    "Rain started",             // 10
+    "Too dark to proceed",      // 11
+    "All good",                 // 12
+    "Slow progress",            // 13
+    "No GPS signal"             // 14
 };
 
 const std::string pmsgListForBase[] = {
-    "Status update?",             // 0
-    "Received your location",     // 1
-    "Help is on the way",         // 2
-    "Take shelter immediately",   // 3
-    "Return to base now",         // 4
-    "Keep moving to next point",  // 5
-    "Activate emergency beacon",  // 6
-    "Rescue team deployed",       // 7
-    "Check your surroundings",    // 8
-    "Repeat last message",        // 9
-    "Battery level?",             // 10
-    "No signal from you",         // 11
-    "Weather warning ahead",      // 12
-    "Rest if needed",             // 13
-    "Base station shutting down"  // 14
+    "Status update?",            // 0
+    "Received your location",    // 1
+    "Help is on the way",        // 2
+    "Take shelter immediately",  // 3
+    "Return to base now",        // 4
+    "Keep moving to next point", // 5
+    "Activate emergency beacon", // 6
+    "Rescue team deployed",      // 7
+    "Check your surroundings",   // 8
+    "Repeat last message",       // 9
+    "Battery level?",            // 10
+    "No signal from you",        // 11
+    "Weather warning ahead",     // 12
+    "Rest if needed",            // 13
+    "Base station shutting down" // 14
 };
 
 int32_t int8ToInt32(int8_t b0, int8_t b1, int8_t b2, int8_t b3)
@@ -102,8 +102,10 @@ bool Payload::verifyChecksum(std::vector<int8_t> payloadVector)
 }
 bool Payload::conformAck(std::vector<int8_t> payloadVector)
 {
-    for (auto it = ackbucket.begin(); it != ackbucket.end(); ++it) {
-        if (it->uid == payloadVector[0] && it->mid == int8ToInt32(payloadVector[4], payloadVector[5], payloadVector[6], payloadVector[7])) {
+    for (auto it = ackbucket.begin(); it != ackbucket.end(); ++it)
+    {
+        if (it->uid == payloadVector[0] && it->mid == int8ToInt32(payloadVector[4], payloadVector[5], payloadVector[6], payloadVector[7]))
+        {
             ackbucket.erase(it);
             return false;
         }
@@ -111,21 +113,21 @@ bool Payload::conformAck(std::vector<int8_t> payloadVector)
     return true;
 }
 
-
 void Payload::forwardPayload()
 {
     MyPayload.fLvL = dLvL;
     setChecksum();
     loraSend();
-
 }
 void Payload::loraSend()
 {
     LoRa.beginPacket();
-    for (int8_t byte : getPayload()) {
+    for (int8_t byte : getPayload())
+    {
         LoRa.write(byte);
     }
     LoRa.endPacket();
+    Serial.println("[Payload Sent]");
 }
 void Payload::setChecksum()
 {
@@ -201,8 +203,8 @@ void Payload::printPayload()
     std::cout << "Checksum: " << static_cast<int>(MyPayload.chk) << std::endl;
 }
 
-std::string Payload::getJsonPayload(std::vector<int8_t> payloadVector)
-{   
+std::string Payload::getJsonPayload()
+{
     // make data json object- these objects are diffrent by type
     std::ostringstream oss;
 
@@ -230,8 +232,8 @@ std::string Payload::getJsonPayload(std::vector<int8_t> payloadVector)
         break;
     case 2: // Gps
         oss << "\"type\": 2, ";
-        oss << "\"lat\": " << int8ToFloat(MyPayload.data[1],MyPayload.data[2],MyPayload.data[3],MyPayload.data[4]) << ", ";
-        oss << "\"lon\": " << int8ToFloat(MyPayload.data[5],MyPayload.data[6],MyPayload.data[7],MyPayload.data[8]) << " ";
+        oss << "\"lat\": " << int8ToFloat(MyPayload.data[1], MyPayload.data[2], MyPayload.data[3], MyPayload.data[4]) << ", ";
+        oss << "\"lon\": " << int8ToFloat(MyPayload.data[5], MyPayload.data[6], MyPayload.data[7], MyPayload.data[8]) << " ";
         break;
     default:
         break;
@@ -328,22 +330,61 @@ void UserDevicePayload::createGps(float latitude, float longitude, int8_t attemp
 }
 
 bool UserDevicePayload::verifyRelation(std::vector<int8_t> payloadVector)
-{   
-    if(payloadVector[0] == 0 && payloadVector[1] == did){
+{
+    if (payloadVector[0] == 0 && payloadVector[1] == did)
+    {
         return true;
-    }else{
+    }
+    else
+    {
         return false;
     }
 }
+    // device types:
+    // 0 - base Device , ids - 0 , LvL = 0
+    // 1-inter Device ,ids 1-26 , LvL = 1-26
+    // 2-user Device , ids 27-127, LvL = 127
+
+    // b2u - 0
+    // u2b - 1
+
+bool InterDevicePayload::verifyRelation(std::vector<int8_t> payloadVector)
+{
+    int8_t msgLvL = payloadVector[2];
+    if (payloadVector[0] == 0) // b2u
+    {
+        if (dLvL > msgLvL)
+        {
+            return true;
+        }
+        else
+        {
+            return false; // If the device level is not higher than the message level, do not accept
+        }
+    }
+    else if (payloadVector[0] == 1) // u2b
+    {
+        if (dLvL < msgLvL)
+        {
+            return true;
+        }
+        else
+        {
+            return false; // If the device level is not lower than the message level, do not accept
+        }
+    }
+    return false; // Default return value if none of the conditions are met
+}
 
 void UserDevicePayload::receive(std::vector<int8_t> payloadVector)
-{   // receive payload from base device only pmsg and cmsg
+{ // receive payload from base device only pmsg and cmsg
     bool pass1 = Payload::verifyChecksum(payloadVector);
     bool pass2 = Payload::conformAck(payloadVector);
     bool pass3 = UserDevicePayload::verifyRelation(payloadVector);
-    if (pass1 && !pass2 && pass3){
-        if(payloadVector[8] == 0) // pmsg
-        {   
+    if (pass1 && !pass2 && pass3)
+    {
+        if (payloadVector[8] == 0) // pmsg
+        {
             inboxbucket.push_back(pmsgListForBase[payloadVector[9]]);
         }
         else if (payloadVector[8] == 1) // cmsg
@@ -353,8 +394,48 @@ void UserDevicePayload::receive(std::vector<int8_t> payloadVector)
         }
         forwardPayload(); // Set the payload after processing
     }
+}
 
+bool BaseDevicePayload::receive(std::vector<int8_t> payloadVector)
+{
+    // Process the received payload
+    bool pass1 = Payload::verifyChecksum(payloadVector);
+    bool pass2 = Payload::conformAck(payloadVector);
+    if (pass1 && !pass2)
+    {
+        return setPayload(payloadVector);
+        // if (p) return Payload::getJsonPayload(payloadVector);
+    }
+    else
+    {
+        return false; // Indicate failure
+    }
+}
 
+bool InterDevicePayload::receive(std::vector<int8_t> payloadVector)
+{
+    // Process the received payload
+    bool pass1 = Payload::verifyChecksum(payloadVector);
+    bool pass2 = Payload::conformAck(payloadVector);
+    bool pass3 = InterDevicePayload::verifyRelation(payloadVector);
+
+    if (pass1 && !pass2 && pass3)
+    {
+        return setPayload(payloadVector);
+        // if (p) return Payload::getJsonPayload(payloadVector);
+    }
+    else
+    {
+        return false; // Indicate failure
+    }
+}
+
+void InterDevicePayload::setPayloadForward(std::vector<int8_t> payloadVector)
+{
+    setPayload(payloadVector);
+    MyPayload.retry++;
+    MyPayload.fLvL = dLvL; // Set Forwarding Level to device level
+    setChecksum(); // Set the checksum after populating MyPayload
 }
 
 std::vector<std::string> UserDevicePayload::getInbox()
@@ -362,12 +443,12 @@ std::vector<std::string> UserDevicePayload::getInbox()
     return inboxbucket;
 }
 
-void BaseDevicePayload::createPmsg(int8_t pmsgid, int8_t attempts)
+void BaseDevicePayload::createPmsg(int8_t pmsgid, int8_t newUid, int8_t attempts)
 {
-    clearPayload();        // Clear any existing payload data
-    MyPayload.dir = 0;     // b2u
-    MyPayload.uid = did;   // Set User ID to device ID
-    MyPayload.fLvL = dLvL; // Set Forwarding Level to device level
+    clearPayload();         // Clear any existing payload data
+    MyPayload.dir = 1;      // u2b
+    MyPayload.uid = did; // Set User ID to device ID
+    MyPayload.fLvL = dLvL;  // Set Forwarding Level to device level
     MyPayload.mid = ++currentMessageId;
     MyPayload.retry = attempts; // Initialize retry count to 0
     MyPayload.data.clear();
@@ -377,12 +458,28 @@ void BaseDevicePayload::createPmsg(int8_t pmsgid, int8_t attempts)
     setChecksum(); // Set the checksum after populating MyPayload
 }
 
-void BaseDevicePayload::createCmsg(std::string cmsg, int8_t attempts)
+void InterDevicePayload::createPmsg(int8_t pmsgid, int8_t newUid, int8_t attempts)
 {
-    clearPayload();        // Clear any existing payload data
-    MyPayload.dir = 0;     // b2u
-    MyPayload.uid = did;   // Set User ID to device ID
-    MyPayload.fLvL = dLvL; // Set Forwarding Level to device level
+    clearPayload();         // Clear any existing payload data
+    MyPayload.dir = 0;      // b2u
+    MyPayload.uid = newUid; // Set User ID to device ID
+    MyPayload.fLvL = dLvL;  // Set Forwarding Level to device level
+    MyPayload.mid = ++currentMessageId;
+    MyPayload.retry = attempts; // Initialize retry count to 0
+    MyPayload.data.clear();
+    // Clear any existing data
+    std::vector<int8_t> dataVector = {0, pmsgid};
+    MyPayload.data = dataVector;
+    setChecksum(); // Set the checksum after populating MyPayload
+}
+
+
+void BaseDevicePayload::createCmsg(std::string cmsg, int8_t newUid, int8_t attempts)
+{
+    clearPayload();         // Clear any existing payload data
+    MyPayload.dir = 0;      // b2u
+    MyPayload.uid = newUid; // Set User ID to device ID
+    MyPayload.fLvL = dLvL;  // Set Forwarding Level to device level
     MyPayload.mid = ++currentMessageId;
     MyPayload.retry = attempts; // Set retry count
     MyPayload.data.clear();     // Clear any existing data
@@ -397,12 +494,12 @@ void BaseDevicePayload::createCmsg(std::string cmsg, int8_t attempts)
     setChecksum(); // Calculate and set checksum
 }
 
-void BaseDevicePayload::createGps(float latitude, float longitude, int8_t attempts)
+void BaseDevicePayload::createGps(float latitude, float longitude, int8_t newUid, int8_t attempts)
 {
-    clearPayload();        // Clear any existing payload data
-    MyPayload.dir = 0;     // b2u
-    MyPayload.uid = did;   // Set User ID to device ID
-    MyPayload.fLvL = dLvL; // Set Forwarding Level to device level
+    clearPayload();         // Clear any existing payload data
+    MyPayload.dir = 0;      // b2u
+    MyPayload.uid = newUid; // Set User ID to device ID
+    MyPayload.fLvL = dLvL;  // Set Forwarding Level to device level
     MyPayload.mid = ++currentMessageId;
     MyPayload.retry = attempts; // Set retry count
     MyPayload.data.clear();     // Clear any existing data
@@ -420,3 +517,5 @@ void BaseDevicePayload::createGps(float latitude, float longitude, int8_t attemp
 
     setChecksum(); // Calculate and set checksum
 }
+
+void receive(std::vector<int8_t> payloadVector) {}

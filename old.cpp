@@ -5,7 +5,7 @@
 #include <Wire.h>
 #include <SPI.h>
 #include <LoRa.h>
-#include "MyIoT.h"
+
 #include "payload_builder.h"
 #include <U8g2lib.h>
 
