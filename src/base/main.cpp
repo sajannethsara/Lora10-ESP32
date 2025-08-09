@@ -30,7 +30,7 @@ void setup()
     digitalWrite(RED_LED, HIGH);
     digitalWrite(BLUE_LED, HIGH);
 
-    LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
+    LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0); 
     LoRa.setTxPower(17);
     LoRa.setSpreadingFactor(7);
     if (!LoRa.begin(433E6))
@@ -65,13 +65,14 @@ void _LoRaListenTask(void *pvParameters)
             }
             blinkGREEN();
             // receive task ek hadann one, meka
-            // bool valid = baseDevice.receive(newReceivedPayload);
+            bool valid = baseDevice.receive(newReceivedPayload);
             baseDevice.setPayload(newReceivedPayload);
-            if (1)
+            if (valid)
             {   blinkBLUE();
                 jsonPayload = baseDevice.getJsonPayload();
                 Serial.println("[Payload Received]");
                 Serial.println(jsonPayload.c_str());
+                baseDevice.printAckBucket();
             }
         }
         // Serial.println("Running Lora Listening Task");
@@ -81,7 +82,7 @@ void _LoRaListenTask(void *pvParameters)
 
 void _SerialListenTask(void *pvParameters)
 {
-    DynamicJsonDocument doc(256); // Allocate 256 bytes for JSON
+    JsonDocument doc; // Allocate 256 bytes for JSON
 
     while (1)
     {
@@ -90,7 +91,7 @@ void _SerialListenTask(void *pvParameters)
             String input = Serial.readStringUntil('\n');
             DeserializationError error = deserializeJson(doc, input);
 
-            Serial.print("Received: ");
+            Serial.print("Received from Base Station : ");
             Serial.println(input.c_str());
 
             if (!error)
@@ -101,6 +102,8 @@ void _SerialListenTask(void *pvParameters)
                 { 
                     int numberData = doc["data"];
                     baseDevice.createPmsg(numberData, userId, 0);
+                    std::vector<int8_t> payloadVector = baseDevice.getPayload();
+                    baseDevice.addAck(payloadVector);
                     baseDevice.loraSend();
                     blinkBLUE();
                 }
@@ -108,6 +111,8 @@ void _SerialListenTask(void *pvParameters)
                 { 
                     std::string stringData = doc["data"].as<const char *>();
                     baseDevice.createCmsg(stringData, userId, 0);
+                    std::vector<int8_t> payloadVector = baseDevice.getPayload();
+                    baseDevice.addAck(payloadVector);
                     baseDevice.loraSend();
                     blinkBLUE();
                 }
@@ -122,11 +127,11 @@ void _SerialListenTask(void *pvParameters)
 }
 
 
-void loop()
-{
-}
+void loop(){}
 
 // {"userId": 77,"type": "pmsg","data": 12}
+// {"userId": 77,"type": "cmsg","data": "Hi man raju"}
+
 
 void blinkGREEN()
 {
@@ -141,3 +146,5 @@ void blinkBLUE()
     vTaskDelay(100 / portTICK_PERIOD_MS);
     digitalWrite(BLUE_LED, LOW);
 }
+
+

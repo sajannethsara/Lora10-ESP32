@@ -68,7 +68,7 @@ int8_t floatToInt8(float value, int index)
 }
 
 // Checksum functions
-int8_t Payload::calChecksumFromVector(std::vector<int8_t> payloadVector)
+int8_t Payload::calChecksumFromVector(const std::vector<int8_t> &payloadVector)
 {
     int8_t checksum = 0;
     for (size_t i = 0; i < payloadVector.size() - 1; ++i) // Exclude the last item (checksum itself)
@@ -96,21 +96,92 @@ int8_t Payload::calChecksumFromPayload()
 
     return checksum;
 }
-bool Payload::verifyChecksum(std::vector<int8_t> payloadVector)
+bool Payload::verifyChecksum(const std::vector<int8_t> &payloadVector)
 {
     return payloadVector.back() == calChecksumFromVector(payloadVector);
 }
-bool Payload::conformAck(std::vector<int8_t> payloadVector)
+// bool Payload::conformAck(const std::vector<int8_t> &payloadVector)
+// {
+//     for (auto it = ackbucket.begin(); it != ackbucket.end(); ++it)
+//     {
+//         if (it->uid == payloadVector[0] && it->mid == int8ToInt32(payloadVector[4], payloadVector[5], payloadVector[6], payloadVector[7]))
+//         {
+//             ackbucket.erase(it);
+//             return false;
+//         }
+//     }
+//     return true;
+// }
+
+bool Payload::conformAck(const std::vector<int8_t> &payloadVector)
 {
-    for (auto it = ackbucket.begin(); it != ackbucket.end(); ++it)
+    if (payloadVector.size() < 8)
+        return true; // invalid payload, ignore
+
+    int8_t uid = payloadVector[0];
+    int32_t mid = int8ToInt32(payloadVector[4], payloadVector[5], payloadVector[6], payloadVector[7]);
+
+    for (int i = 0; i < ackCount; i++)
     {
-        if (it->uid == payloadVector[0] && it->mid == int8ToInt32(payloadVector[4], payloadVector[5], payloadVector[6], payloadVector[7]))
+        if (ackbucket[i].uid == uid && ackbucket[i].mid == mid)
         {
-            ackbucket.erase(it);
-            return false;
+            // Remove by shifting left
+            for (int j = i; j < ackCount - 1; j++)
+                ackbucket[j] = ackbucket[j + 1];
+
+            ackCount--;
+            return false; // Found ACK
         }
     }
-    return true;
+    return true; // No ACK match
+}
+
+void Payload::printAckBucket()
+{
+    Serial.println("---- ACK Bucket ----");
+    if (ackCount == 0)
+    {
+        Serial.println("Empty");
+        return;
+    }
+
+    for (int i = 0; i < ackCount; i++)
+    {
+        Serial.print("Index ");
+        Serial.print(i);
+        Serial.print(": UID=");
+        Serial.print(ackbucket[i].uid);
+        Serial.print(", MID=");
+        Serial.println(ackbucket[i].mid);
+    }
+    Serial.println("--------------------");
+}
+
+void Payload::addAck(const std::vector<int8_t> &payloadVector)
+{   
+    int8_t uid = payloadVector[1];
+    int32_t mid = int8ToInt32(payloadVector[4], payloadVector[5], payloadVector[6], payloadVector[7]);
+    // Check duplicate
+    for (int i = 0; i < ackCount; i++)
+    {
+        if (ackbucket[i].uid == uid && ackbucket[i].mid == mid)
+            return; // Already exists, no need to add
+    }
+
+    if (ackCount < MAX_ACKS)
+    {
+        // Add to end
+        ackbucket[ackCount++] = {uid, mid};
+    }
+    else
+    {
+        // Overflow handling: remove oldest (shift left)
+        for (int i = 1; i < MAX_ACKS; i++)
+            ackbucket[i - 1] = ackbucket[i];
+
+        // Add new at end
+        ackbucket[MAX_ACKS - 1] = {uid, mid};
+    }
 }
 
 void Payload::forwardPayload()
@@ -163,7 +234,7 @@ void Payload::printDeviceInfo()
     std::cout << "---" << std::endl;
 }
 
-bool Payload::setPayload(std::vector<int8_t> payloadVector)
+bool Payload::setPayload(const std::vector<int8_t> &payloadVector)
 {
     if (verifyChecksum(payloadVector))
     {
@@ -340,13 +411,13 @@ bool UserDevicePayload::verifyRelation(std::vector<int8_t> payloadVector)
         return false;
     }
 }
-    // device types:
-    // 0 - base Device , ids - 0 , LvL = 0
-    // 1-inter Device ,ids 1-26 , LvL = 1-26
-    // 2-user Device , ids 27-127, LvL = 127
+// device types:
+// 0 - base Device , ids - 0 , LvL = 0
+// 1-inter Device ,ids 1-26 , LvL = 1-26
+// 2-user Device , ids 27-127, LvL = 127
 
-    // b2u - 0
-    // u2b - 1
+// b2u - 0
+// u2b - 1
 
 bool InterDevicePayload::verifyRelation(std::vector<int8_t> payloadVector)
 {
@@ -396,12 +467,12 @@ void UserDevicePayload::receive(std::vector<int8_t> payloadVector)
     }
 }
 
-bool BaseDevicePayload::receive(std::vector<int8_t> payloadVector)
+bool BaseDevicePayload::receive(const std::vector<int8_t> &payloadVector)
 {
     // Process the received payload
     bool pass1 = Payload::verifyChecksum(payloadVector);
     bool pass2 = Payload::conformAck(payloadVector);
-    if (pass1 && !pass2)
+    if (pass1 && pass2)
     {
         return setPayload(payloadVector);
         // if (p) return Payload::getJsonPayload(payloadVector);
@@ -435,7 +506,7 @@ void InterDevicePayload::setPayloadForward(std::vector<int8_t> payloadVector)
     setPayload(payloadVector);
     MyPayload.retry++;
     MyPayload.fLvL = dLvL; // Set Forwarding Level to device level
-    setChecksum(); // Set the checksum after populating MyPayload
+    setChecksum();         // Set the checksum after populating MyPayload
 }
 
 std::vector<std::string> UserDevicePayload::getInbox()
@@ -443,12 +514,36 @@ std::vector<std::string> UserDevicePayload::getInbox()
     return inboxbucket;
 }
 
+void UserDevicePayload::setInboxNew(const std::string &message)
+{
+    inboxbucket.push_back(message);
+}
+
+void UserDevicePayload::printInbox()
+{
+    Serial.println("---- Inbox ----");
+    if (inboxbucket.empty())
+    {
+        Serial.println("Inbox is empty.");
+        return;
+    }
+
+    for (size_t i = 0; i < inboxbucket.size(); ++i)
+    {
+        Serial.print("Message ");
+        Serial.print(i + 1);
+        Serial.print(": ");
+        Serial.println(inboxbucket[i].c_str());
+    }
+    Serial.println("----------------");
+}
+
 void BaseDevicePayload::createPmsg(int8_t pmsgid, int8_t newUid, int8_t attempts)
 {
-    clearPayload();         // Clear any existing payload data
-    MyPayload.dir = 1;      // u2b
-    MyPayload.uid = did; // Set User ID to device ID
-    MyPayload.fLvL = dLvL;  // Set Forwarding Level to device level
+    clearPayload();        // Clear any existing payload data
+    MyPayload.dir = 1;     // u2b
+    MyPayload.uid = did;   // Set User ID to device ID
+    MyPayload.fLvL = dLvL; // Set Forwarding Level to device level
     MyPayload.mid = ++currentMessageId;
     MyPayload.retry = attempts; // Initialize retry count to 0
     MyPayload.data.clear();
@@ -458,12 +553,12 @@ void BaseDevicePayload::createPmsg(int8_t pmsgid, int8_t newUid, int8_t attempts
     setChecksum(); // Set the checksum after populating MyPayload
 }
 
-void InterDevicePayload::createPmsg(int8_t pmsgid, int8_t newUid, int8_t attempts)
+void InterDevicePayload::createPmsg(int8_t pmsgid, int8_t attempts)
 {
-    clearPayload();         // Clear any existing payload data
-    MyPayload.dir = 0;      // b2u
-    MyPayload.uid = newUid; // Set User ID to device ID
-    MyPayload.fLvL = dLvL;  // Set Forwarding Level to device level
+    clearPayload();        // Clear any existing payload data
+    MyPayload.dir = 0;     // b2u
+    MyPayload.uid = did;   // Set User ID to device ID
+    MyPayload.fLvL = dLvL; // Set Forwarding Level to device level
     MyPayload.mid = ++currentMessageId;
     MyPayload.retry = attempts; // Initialize retry count to 0
     MyPayload.data.clear();
@@ -472,7 +567,6 @@ void InterDevicePayload::createPmsg(int8_t pmsgid, int8_t newUid, int8_t attempt
     MyPayload.data = dataVector;
     setChecksum(); // Set the checksum after populating MyPayload
 }
-
 
 void BaseDevicePayload::createCmsg(std::string cmsg, int8_t newUid, int8_t attempts)
 {

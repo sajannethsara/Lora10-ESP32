@@ -40,13 +40,25 @@
 //     vTaskDelay(10 / portTICK_PERIOD_MS);
 // }
 
+#define RED_LED 27
+#define BLUE_LED 2
+
+void blinkRED();
+void blinkBLUE();
+
+
 #include <Arduino.h>
 #include <LoRa.h>
 #include "Protocol.h"
+#include "BLE.h"
 
 UserDevicePayload userDevice66(66);
 
 UserDevicePayload userDevice77(77);
+
+InterDevicePayload interDevice12(12, 3);
+InterDevicePayload interDevice05(5, 2);
+
 // BaseDevicePayload baseDevice0(0);
 void sendPayload(const std::vector<int8_t> &payload)
 {
@@ -66,6 +78,12 @@ void setup()
 {
 
     Serial.begin(115200);
+    pinMode(RED_LED, OUTPUT);
+    pinMode(BLUE_LED, OUTPUT);
+
+    digitalWrite(RED_LED, HIGH);
+    digitalWrite(BLUE_LED, HIGH);
+
     Serial.println("LoRa Device Simulator Starting...");
     LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
     LoRa.setTxPower(17);        // Set transmission power to 17 dBm
@@ -84,38 +102,54 @@ void loop()
 
     userDevice66.createPmsg(4);
     userDevice66.loraSend();
+    blinkBLUE();
     delay(5000);
 
-    // sendPayload(payload66);
-    // Serial.println("Payload sent from userDevice66");
-    // Simulate sending a Cmsg from userDevice77
     userDevice77.createCmsg("Hello from userDevice77", 0);
     userDevice77.loraSend();
     std::string msg1 = userDevice77.getJsonPayload();
     Serial.println(msg1.c_str());
+        blinkBLUE();
+
     delay(5000);
 
     userDevice66.createGps(37.7749, -122.4194, 0);
     std::string msg2 = userDevice66.getJsonPayload();
     Serial.println(msg2.c_str());
     userDevice66.loraSend();
+    blinkBLUE();
 
     delay(5000);
-
 
     userDevice77.createGps(34.0522, -118.2437, 0);
     std::string msg3 = userDevice77.getJsonPayload();
     Serial.println(msg3.c_str());
     userDevice77.loraSend();
+        blinkBLUE();
+
     delay(5000);
 
-    // Serial.println();
-    // sendPayload(payload77);
-    // Serial.println(typedef(payload66));
+    interDevice05.createPmsg(2);
+    std::string msg4 = interDevice05.getJsonPayload();
+    Serial.println(msg4.c_str());
+    interDevice05.loraSend();
+        blinkRED();
+
+    delay(5000);
+
+    interDevice12.createPmsg(5);
+    std::string msg5 = interDevice12.getJsonPayload();
+    Serial.println(msg5.c_str());
+    interDevice12.loraSend();
+    blinkRED();
+    delay(5000);
 
     Serial.println("----------------");
     Serial.println();
+    Serial.println("Looping through all devices...");
+    blinkBLUE();
     delay(500);
+    blinkRED();
 }
 
 // void sendPayload(const std::vector<int8_t>& payload ) {
@@ -126,3 +160,18 @@ void loop()
 //     LoRa.endPacket();
 
 // }
+
+
+void blinkRED()
+{
+    digitalWrite(RED_LED, HIGH);
+    delay(100);
+    digitalWrite(RED_LED, LOW);
+}
+
+void blinkBLUE()
+{
+    digitalWrite(BLUE_LED, HIGH);
+    delay(100);
+    digitalWrite(BLUE_LED, LOW);
+}

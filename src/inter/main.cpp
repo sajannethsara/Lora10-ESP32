@@ -5,6 +5,8 @@
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 bool backLightState = true; // Initial backlight state
+unsigned long lastActivityTime = 0;
+#define LCD_TIMEOUT 30000 // 30 seconds in milliseconds
 
 void _LoRaListenTask(void *pvParameters);
 void _LoraSendTask(void *pvParameters);
@@ -13,8 +15,15 @@ void _LCDDisplayTask(void *pvParameters);
 TaskHandle_t Task1;
 TaskHandle_t Task2;
 
+#define OK_BTN 33
+// #define MODE_BTN 32
+#define UP_BTN 25
+#define DOWN_BTN 27
+// #define SLEEP_BTN 5
+
 #define GREEN_LED 27
-#define BLUE_LED 13
+#define BLUE_LED 2
+
 void blinkGREEN();
 void blinkBLUE();
 
@@ -33,40 +42,48 @@ void setup()
     pinMode(GREEN_LED, OUTPUT);
     pinMode(BLUE_LED, OUTPUT);
 
-    pinMode(MODE_BTN, INPUT_PULLDOWN);
     pinMode(UP_BTN, INPUT_PULLDOWN);
     pinMode(DOWN_BTN, INPUT_PULLDOWN);
+    pinMode(OK_BTN, INPUT_PULLDOWN);
+    // pinMode(MODE_BTN, INPUT_PULLDOWN);
+    // pinMode(SLEEP_BTN, INPUT_PULLDOWN);
 
     // digitalWrite(RED_LED, HIGH);
     // digitalWrite(BLUE_LED, HIGH);
 
     LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
-    LoRa.setTxPower(17);
-    LoRa.setSpreadingFactor(7);
+
     if (!LoRa.begin(433E6))
     {
         Serial.println("LoRa init failed.");
         while (1)
             ; // Base
     }
-    Serial.println("LoRa init succeeded.");
+        Serial.println("LoRa init succeeded.");
+    // LoRa.setSyncWord(0x12);
+    LoRa.setTxPower(15);
+    LoRa.setSpreadingFactor(13);
+
+
     lcd.init();
     lcd.backlight();
     // LoRa.setSy1ncWord(0x12);
-    ForwardQueue = xQueueCreate(10, sizeof(int8_t));
     xSemaphore = xSemaphoreCreateMutex();
+    ForwardQueue = xQueueCreate(10, sizeof(int8_t));
     if (!ForwardQueue)
     {
         Serial.println("Queue creation failed!");
         while (1)
             ;
+    }else{
+        Serial.println("ForwardQueue created successfully!");
     }
 
     xTaskCreatePinnedToCore(_LoRaListenTask, "LoRaListenTask", 8192, NULL, 1, &Task1, 0);
     xTaskCreatePinnedToCore(_LoraSendTask, "LoraSendTask", 4096, NULL, 1, &Task2, 1);
     xTaskCreatePinnedToCore(_LCDDisplayTask, "LCDDisplayTask", 2048, NULL, 1, NULL, 1);
     vTaskDelay(1000 / portTICK_PERIOD_MS);
-    digitalWrite(RED_LED, LOW);
+    digitalWrite(GREEN_LED, LOW);
     digitalWrite(BLUE_LED, LOW);
 }
 
@@ -129,9 +146,9 @@ void _LCDDisplayTask(void *pvParameters)
     {
         bool pressed = false;
 
-        if (digitalRead(BTN_UP) == HIGH ||
-            digitalRead(BTN_DOWN) == HIGH ||
-            digitalRead(BTN_OK) == HIGH)
+        if (digitalRead(UP_BTN) == HIGH ||
+            digitalRead(DOWN_BTN) == HIGH ||
+            digitalRead(OK_BTN) == HIGH)
         {
             pressed = true;
             lastActivityTime = millis();
@@ -150,23 +167,24 @@ void _LCDDisplayTask(void *pvParameters)
             lcd.noBacklight();
         }
     }
+}
 
-    void loop()
-    {
-    }
+void loop()
+{
+}
 
-    // {"userId": 77,"type": "pmsg","data": 12}
+// {"userId": 77,"type": "pmsg","data": 12}
 
-    void blinkGREEN()
-    {
-        digitalWrite(RED_LED, HIGH);
-        vTaskDelay(100 / portTICK_PERIOD_MS);
-        digitalWrite(RED_LED, LOW);
-    }
+void blinkGREEN()
+{
+    digitalWrite(GREEN_LED, HIGH);
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+    digitalWrite(GREEN_LED, LOW);
+}
 
-    void blinkBLUE()
-    {
-        digitalWrite(BLUE_LED, HIGH);
-        vTaskDelay(100 / portTICK_PERIOD_MS);
-        digitalWrite(BLUE_LED, LOW);
-    }
+void blinkBLUE()
+{
+    digitalWrite(BLUE_LED, HIGH);
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+    digitalWrite(BLUE_LED, LOW);
+}

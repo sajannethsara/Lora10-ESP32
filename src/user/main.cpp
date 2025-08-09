@@ -28,7 +28,7 @@ const unsigned long debounceDelay = 200;
 #define H_FONT u8g2_font_ncenB08_tr
 #define P_FONT u8g2_font_6x10_tr
 
-UserDevicePayload userDevice(53); // Device ID 53
+UserDevicePayload userDevice(77); // Device ID 77
 int page = 0;
 int states[5][2] = {0};
 SemaphoreHandle_t xSemaphore;
