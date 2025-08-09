@@ -82,7 +82,7 @@ void _LoRaListenTask(void *pvParameters)
 
 void _SerialListenTask(void *pvParameters)
 {
-    JsonDocument doc; // Allocate 256 bytes for JSON
+    JsonDocument doc;
 
     while (1)
     {

@@ -6,9 +6,10 @@
 #include <Wire.h>
 #include <SPI.h>
 
+TaskHandle_t Task1;
+TaskHandle_t Task2;
 void _LoRaListenTask(void *pvParameters);
-void _ButtonPressTask(void *pvParameters); 
-
+void _ButtonPressTask(void *pvParameters);
 
 // Pins
 #define LORA_SS 5
@@ -16,11 +17,15 @@ void _ButtonPressTask(void *pvParameters);
 #define LORA_DIO0 26
 int RSSI = -50;
 
-#define OK_BTN 33
-#define MODE_BTN 32
+#define OK_BTN 32
 #define UP_BTN 25
-#define DOWN_BTN 27
-#define SLEEP_BTN 5
+#define DOWN_BTN 33
+#define MODE_BTN 35
+#define SLEEP_BTN 36
+
+#define RED_LED 27
+#define BLUE_LED 2
+
 unsigned long lastDebounceTime = 0;
 const unsigned long debounceDelay = 200;
 
@@ -33,18 +38,23 @@ int page = 0;
 int states[5][2] = {0};
 SemaphoreHandle_t xSemaphore;
 
-
 void setup()
 {
     Serial.begin(115200);
     // u8g2.begin();
     // u8g2.clearBuffer();
 
-    // pinMode(MODE_BTN, INPUT_PULLDOWN);
-    // pinMode(UP_BTN, INPUT_PULLDOWN);
-    // pinMode(DOWN_BTN, INPUT_PULLDOWN);
-    // pinMode(OK_BTN, INPUT_PULLDOWN);
-    // pinMode(SLEEP_BTN, INPUT_PULLDOWN);
+    pinMode(MODE_BTN, INPUT_PULLDOWN);
+    pinMode(UP_BTN, INPUT_PULLDOWN);
+    pinMode(DOWN_BTN, INPUT_PULLDOWN);
+    pinMode(OK_BTN, INPUT_PULLDOWN);
+    pinMode(SLEEP_BTN, INPUT_PULLDOWN);
+
+    pinMode(RED_LED, OUTPUT);
+    pinMode(BLUE_LED, OUTPUT);
+
+    digitalWrite(RED_LED, HIGH);
+    digitalWrite(BLUE_LED, HIGH);
 
     LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
     if (!LoRa.begin(433E6))
@@ -61,26 +71,27 @@ void setup()
     xSemaphore = xSemaphoreCreateMutex();
 
     // core 0 system , core 1 user
-    xTaskCreatePinnedToCore(_LoRaListenTask, "LoRaListenTask", 1024, NULL, 2, NULL, 1);
-    // xTaskCreatePinnedToCore(_BleCommunicationTask, "BleCommunicationTask", 2048, nullptr, 1, nullptr, 1);
+    xTaskCreatePinnedToCore(_LoRaListenTask, "LoRaListenTask", 8192, NULL, 1, &Task1, 0);    // xTaskCreatePinnedToCore(_BleCommunicationTask, "BleCommunicationTask", 2048, nullptr, 1, nullptr, 1);
     // xTaskCreatePinnedToCore(_GpsUpdateTask, "GpsUpdateTask", 2048, nullptr, 1, nullptr, 1);
 
-    xTaskCreatePinnedToCore(_ButtonPressTask, "ButtonPressTask", 2048, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(_ButtonPressTask, "ButtonPressTask", 2048, NULL, 1, &Task2, 1);
     // xTaskCreatePinnedToCore(_OledDisplayTask, "OledDisplayTask", 4096, nullptr, 1, nullptr, 0);
     // xTaskCreatePinnedToCore(_BackNavigationTask, "BackNavigationTask", 2048, nullptr, 2, nullptr, 0);
+
+    digitalWrite(RED_LED, LOW);
+    digitalWrite(BLUE_LED, LOW);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
 }
 
 void loop()
 {
-  // Not needed as FreeRTOS manages tasks
+    // Not needed as FreeRTOS manages tasks
 }
-
-
 
 // BTN
 void modeBtnPressed()
 {
-    if (xSemaphoreTake(xSemaphore, portMAX_DELAY))
+    if (xSemaphoreTake(xSemaphore, pdMS_TO_TICKS(5)))
     {
         page = (page + 1) % 5; // Cycle through screens 0 to 4
         xSemaphoreGive(xSemaphore);
@@ -91,11 +102,12 @@ void modeBtnPressed()
 void sleepBtnPressed()
 {
     // Sleeping Logic Should Apply
+    Serial.println("Sleep button pressed");
 }
 
 void upBtnPressed()
 {
-    if (xSemaphoreTake(xSemaphore, portMAX_DELAY))
+    if (xSemaphoreTake(xSemaphore, pdMS_TO_TICKS(5)))
     {
         if (page == 1 && states[1][0] > 0) // Inbox
         {
@@ -112,7 +124,7 @@ void upBtnPressed()
 
 void downBtnPressed()
 {
-    if (xSemaphoreTake(xSemaphore, portMAX_DELAY))
+    if (xSemaphoreTake(xSemaphore, pdMS_TO_TICKS(5)))
     {
         if (page == 1 && states[1][0] < 9) // Inbox
         {
@@ -129,7 +141,7 @@ void downBtnPressed()
 
 void okBtnPressed()
 {
-    if (xSemaphoreTake(xSemaphore, portMAX_DELAY))
+    if (xSemaphoreTake(xSemaphore, pdMS_TO_TICKS(5)))
     {
         if (page == 1) // Inbox
         {
@@ -145,51 +157,8 @@ void okBtnPressed()
     }
     Serial.println("OK button pressed");
 }
-
-void _ButtonPressTask(void *pvParameters)
-{
-    Serial.println("Button Press Task Started");
-    while (1)
-    {
-        if (millis() - lastDebounceTime > debounceDelay)
-        {
-            if (digitalRead(MODE_BTN) == HIGH)
-            {   
-                Serial.println("MODE");
-                modeBtnPressed();
-                lastDebounceTime = millis();
-            }
-
-            if (digitalRead(UP_BTN) == HIGH)
-            {
-                Serial.println("UP");
-                upBtnPressed();
-                lastDebounceTime = millis();
-            }
-
-            if (digitalRead(DOWN_BTN) == HIGH)
-            {
-                Serial.println("DOWN");
-                downBtnPressed();
-                lastDebounceTime = millis();
-            }
-
-            if (digitalRead(OK_BTN) == HIGH)
-            {
-                Serial.println("OK");
-                okBtnPressed();
-                lastDebounceTime = millis();
-            }
-
-            if (digitalRead(SLEEP_BTN) == HIGH)
-            {
-                Serial.println("SLEEP");
-                sleepBtnPressed();
-                lastDebounceTime = millis();
-            }
-            
-            // ----- Test Output -----
-            if (xSemaphoreTake(xSemaphore, portMAX_DELAY))
+void printStatesOfButtons(){
+    if (xSemaphoreTake(xSemaphore, pdMS_TO_TICKS(5)))
             {
                 Serial.print("Page: ");
                 Serial.println(page);
@@ -207,11 +176,62 @@ void _ButtonPressTask(void *pvParameters)
                 }
                 xSemaphoreGive(xSemaphore);
             }
-            //------------------------
+}
+
+
+void _ButtonPressTask(void *pvParameters)
+{
+    Serial.println("Button Press Task Started");
+    while (1)
+    {
+        if (millis() - lastDebounceTime > debounceDelay)
+        {
+            if (digitalRead(MODE_BTN) == HIGH)
+            {
+                Serial.println("MODE");
+                modeBtnPressed();
+                printStatesOfButtons();
+                lastDebounceTime = millis();
+            }
+
+            if (digitalRead(UP_BTN) == HIGH)
+            {
+                Serial.println("UP");
+                upBtnPressed();
+                printStatesOfButtons();
+                lastDebounceTime = millis();
+            }
+
+            if (digitalRead(DOWN_BTN) == HIGH)
+            {
+                Serial.println("DOWN");
+                downBtnPressed();
+                printStatesOfButtons();
+                lastDebounceTime = millis();
+            }
+
+            if (digitalRead(OK_BTN) == HIGH)
+            {
+                Serial.println("OK");
+                okBtnPressed();
+                printStatesOfButtons();
+                lastDebounceTime = millis();
+            }
+
+            if (digitalRead(SLEEP_BTN) == HIGH)
+            {
+                Serial.println("SLEEP");
+                sleepBtnPressed();
+                printStatesOfButtons();
+                lastDebounceTime = millis();
+            }
         }
         vTaskDelay(50 / portTICK_PERIOD_MS);
     }
 }
+
+
+
 
 // // OLED
 // void renderWelcome()
@@ -352,10 +372,12 @@ void _LoRaListenTask(void *pvParameters)
             {
                 newReceivedPayload.push_back(LoRa.read());
             }
-            userDevice.receive(newReceivedPayload);
-            
+            // userDevice.receive(newReceivedPayload);
+            userDevice.setPayload(newReceivedPayload);
+            userDevice.printPayload();
         }
-    }
-    vTaskDelay(10 / portTICK_PERIOD_MS);
-}
 
+        // Let other tasks run
+        vTaskDelay(pdMS_TO_TICKS(10)); // 10ms pause to feed watchdog
+    }
+}
