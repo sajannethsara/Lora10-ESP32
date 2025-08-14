@@ -1,45 +1,84 @@
-// #include "BLE.h"
-// #include "Protocol.h"
-//  #include <NimBLEDevice.h>
+#include <Arduino.h>
+#include "BLEVectorSyncServer.h"
 
-// MyBLEConnection ble;
-// UserDevicePayload userDevice(108);
+// Your app's vectors (non-const so you can push; library holds const& to them)
+std::vector<std::string> inbox;
+std::vector<std::string> sendbox;
+std::vector<std::string> gps;
 
-// void setup()
-// {
-//     Serial.begin(115200);
-//     // Initialize BLE connection
-//     ble.StartBLE();
+// Sync wrappers
+BLEVectorSyncServer bleServer("ESP32_Sync_Device");
+BLEVectorSync inboxSync("inbox", inbox);
+BLEVectorSync sendboxSync("sendbox", sendbox);
+BLEVectorSync gpsSync("gps", gps);
 
-//     // Set up other necessary components
-// }
+// Example: safely push into a vector using its mutex
+static void pushInboxSafe(const std::string &s)
+{
+    xSemaphoreTake(inboxSync.getMutex(), portMAX_DELAY);
+    inbox.push_back(s);
+    xSemaphoreGive(inboxSync.getMutex());
+}
 
-// void loop()
-// {   
-//     userDevice.setInboxNew("1:Hello Raju");
-//     userDevice.setInboxNew("2:Hello Rajuuuu");
-//     bool a = ble.ServeInboxChunks(2, 10, userDevice.getInbox());
-//     userDevice.printInbox();
-//     delay(2000); // Adjust delay as needed
-// }
+static void pushSendboxSafe(const std::string &s)
+{
+    xSemaphoreTake(sendboxSync.getMutex(), portMAX_DELAY);
+    sendbox.push_back(s);
+    xSemaphoreGive(sendboxSync.getMutex());
+}
 
-// /*
-// Base Station code ek final karanna one.
-//   -  msg resive karanna one.-app ekt json denna one. - adala ewa newata forword karann one.
-//   -  msg send karanna one. - from app commanads walata.
+static void pushGpsSafe(const std::string &s)
+{
+    xSemaphoreTake(gpsSync.getMutex(), portMAX_DELAY);
+    gps.push_back(s);
+    xSemaphoreGive(gpsSync.getMutex());
+}
 
-// Intermediate Device code ek final karanna one.
-//   - msg resive krala adala ewa forword karann one.
-//   - predifined msg LCD eke pennann one.
-//   - button task ekk hadann one.
-//   - msg send wenna hadanna one.
+void setup()
+{
+    Serial.begin(115200);
+    delay(100);
 
-// User Device code ek final karanna one.
-//   - button task ek weda karanna one.
-//   - OLED ek maru wenna one.
-//   - msg resive krala inbox walata add karann one.
-//   - adala msg forword karann one.
-//   - gps yawanna one.
-//   -  b
+    // Optional: cap max read bytes (0 = unlimited, rely on MTU)
+    inboxSync.setMaxReadBytes(240);
 
-// */
+    // Register vectors
+    bleServer.addVector(&inboxSync);
+    bleServer.addVector(&sendboxSync);
+    bleServer.addVector(&gpsSync);
+
+    // Start BLE (MTU 247 ~ 244 bytes payload per GATT read)
+    while (!bleServer.begin(120, ESP_PWR_LVL_P9))
+    {
+        Serial.println("Failed to start BLE server, retrying...");
+        delay(1000);
+    }
+    Serial.println("[BLE] server started successfully");
+    // Seed demo data (thread-safe)
+    pushInboxSafe("1: hello");
+    pushInboxSafe("3: how are you?");
+    pushSendboxSafe("2: sent OK");
+    pushGpsSafe("7.8731,80.7718");
+}
+int count = 0;
+void loop()
+{
+    // Periodically check for vector growth and notify subscribers
+    inboxSync.checkForUpdates();
+    sendboxSync.checkForUpdates();
+    gpsSync.checkForUpdates();
+
+    // Demo: append new items every 10s
+    static uint32_t last = 0;
+    if (millis() - last > 10000)
+    {
+        last = millis();
+        pushInboxSafe("1: hello");
+        pushInboxSafe("3: how are you?" + std::to_string(count++));
+        pushSendboxSafe("2: sent OK");
+        pushGpsSafe("7.8731,80.7718");
+        Serial.println("Appended demo items.");
+    }
+
+    delay(200);
+}

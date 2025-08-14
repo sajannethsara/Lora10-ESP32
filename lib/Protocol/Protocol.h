@@ -88,7 +88,7 @@ public:
     void createPmsg(int8_t pmsgid, int8_t attempts = 0);
     void createCmsg(std::string cmsg, int8_t attempts = 0);
     void createGps(float latitude, float longitude, int8_t attempts = 0);
-
+    
     bool verifyRelation(std::vector<int8_t> payloadVector);
     // receive payload from base device only pmsg and cmsg
     void receive(std::vector<int8_t> payloadVector);

@@ -9,8 +9,8 @@ void _SerialListenTask(void *pvParameters);
 TaskHandle_t Task1;
 TaskHandle_t Task2;   
 
-#define RED_LED 27
-#define BLUE_LED 13
+#define RED_LED 02
+#define BLUE_LED 27
 void blinkGREEN();
 void blinkBLUE();
 
@@ -56,6 +56,7 @@ void _LoRaListenTask(void *pvParameters)
         int packetSize = LoRa.parsePacket();
         if (packetSize)
         {
+            Serial.print("Received packet: ");
             std::vector<int8_t> newReceivedPayload;
             std::string jsonPayload;
             RSSI = LoRa.packetRssi();
@@ -65,10 +66,19 @@ void _LoRaListenTask(void *pvParameters)
             }
             blinkGREEN();
             // receive task ek hadann one, meka
+            blinkGREEN();
+            Serial.println("[*] Received a packet : ");
+            for (const auto &byte : newReceivedPayload)
+            {
+                Serial.print(byte, HEX);
+                Serial.print(" ");
+            }
+            Serial.println();
             bool valid = baseDevice.receive(newReceivedPayload);
             baseDevice.setPayload(newReceivedPayload);
             if (valid)
-            {   blinkBLUE();
+            {   
+                blinkBLUE();
                 jsonPayload = baseDevice.getJsonPayload();
                 Serial.println("[Payload Received]");
                 Serial.println(jsonPayload.c_str());
@@ -76,7 +86,7 @@ void _LoRaListenTask(void *pvParameters)
             }
         }
         // Serial.println("Running Lora Listening Task");
-        vTaskDelay(100 / portTICK_PERIOD_MS);
+        vTaskDelay(pdMS_TO_TICKS(1)); // 1ms pause to feed watchdog
     }
 }
 

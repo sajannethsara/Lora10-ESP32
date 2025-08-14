@@ -556,7 +556,7 @@ void BaseDevicePayload::createPmsg(int8_t pmsgid, int8_t newUid, int8_t attempts
 void InterDevicePayload::createPmsg(int8_t pmsgid, int8_t attempts)
 {
     clearPayload();        // Clear any existing payload data
-    MyPayload.dir = 0;     // b2u
+    MyPayload.dir = 1;     // b2u
     MyPayload.uid = did;   // Set User ID to device ID
     MyPayload.fLvL = dLvL; // Set Forwarding Level to device level
     MyPayload.mid = ++currentMessageId;
