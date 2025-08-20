@@ -1,6 +1,6 @@
 #include "Protocol.h"
 
-const std::string pmsgListForUser[] = {
+const std::vector<std::string> pmsgListForUser = {
     "Reached checkpoint",       // 0
     "Started hike",             // 1
     "Taking a break",           // 2
@@ -18,7 +18,7 @@ const std::string pmsgListForUser[] = {
     "No GPS signal"             // 14
 };
 
-const std::string pmsgListForBase[] = {
+const std::vector<std::string> pmsgListForBase = {
     "Status update?",            // 0
     "Received your location",    // 1
     "Help is on the way",        // 2
@@ -158,7 +158,7 @@ void Payload::printAckBucket()
 }
 
 void Payload::addAck(const std::vector<int8_t> &payloadVector)
-{   
+{
     int8_t uid = payloadVector[1];
     int32_t mid = int8ToInt32(payloadVector[4], payloadVector[5], payloadVector[6], payloadVector[7]);
     // Check duplicate
@@ -303,8 +303,10 @@ std::string Payload::getJsonPayload()
         break;
     case 2: // Gps
         oss << "\"type\": 2, ";
-        oss << "\"lat\": " << int8ToFloat(MyPayload.data[1], MyPayload.data[2], MyPayload.data[3], MyPayload.data[4]) << ", ";
-        oss << "\"lon\": " << int8ToFloat(MyPayload.data[5], MyPayload.data[6], MyPayload.data[7], MyPayload.data[8]) << " ";
+        oss << "\"lat\": " << std::fixed << std::setprecision(4)
+            << int8ToFloat(MyPayload.data[1], MyPayload.data[2], MyPayload.data[3], MyPayload.data[4]) << ", ";
+        oss << "\"lon\": " << std::fixed << std::setprecision(4)
+            << int8ToFloat(MyPayload.data[5], MyPayload.data[6], MyPayload.data[7], MyPayload.data[8]) << " ";
         break;
     default:
         break;
@@ -318,6 +320,30 @@ std::string Payload::getJsonPayload()
     oss << "}";
 
     return oss.str();
+}
+
+std::string Payload::getMsg(const std::vector<int8_t> &payloadVector)
+{
+    if(payloadVector[8] == 0) // Pmsg
+    {
+        return pmsgListForUser[payloadVector[9]];
+    }
+    else if(payloadVector[8] == 1) // Cmsg
+    {
+        return std::string(payloadVector.begin() + 10, payloadVector.end() - 1);
+    }else if(payloadVector[8] == 2){
+        return "[GPS Cordinate]"
+    }
+}
+
+std::vector<std::string> Payload::getPredefinedMessagesForUser()
+{
+    return pmsgListForUser;
+}
+
+std::vector<std::string> Payload::getPredefinedMessagesForBase()
+{
+    return pmsgListForBase;
 }
 
 std::vector<int8_t> Payload::getPayload()
@@ -400,7 +426,7 @@ void UserDevicePayload::createGps(float latitude, float longitude, int8_t attemp
     setChecksum(); // Calculate and set checksum
 }
 
-bool UserDevicePayload::verifyRelation(std::vector<int8_t> payloadVector)
+bool UserDevicePayload::verifyRelation(const std::vector<int8_t> &payloadVector)
 {
     if (payloadVector[0] == 0 && payloadVector[1] == did)
     {
@@ -447,24 +473,46 @@ bool InterDevicePayload::verifyRelation(std::vector<int8_t> payloadVector)
     return false; // Default return value if none of the conditions are met
 }
 
-void UserDevicePayload::receive(std::vector<int8_t> payloadVector)
+void UserDevicePayload::receive(const std::vector<int8_t> &payloadVector)
 { // receive payload from base device only pmsg and cmsg
+    Serial.println("[UserDevicePayload::receive] Start");
     bool pass1 = Payload::verifyChecksum(payloadVector);
+    Serial.print("Checksum verification: ");
+    Serial.println(pass1 ? "PASS" : "FAIL");
+
     bool pass2 = Payload::conformAck(payloadVector);
+    Serial.print("ACK conformity: ");
+    Serial.println(pass2 ? "NO MATCH" : "MATCH");
+
     bool pass3 = UserDevicePayload::verifyRelation(payloadVector);
-    if (pass1 && !pass2 && pass3)
+    Serial.print("Relation verification: ");
+    Serial.println(pass3 ? "PASS" : "FAIL");
+
+    if (pass1 && pass2 && pass3)
     {
+        Serial.println("All checks passed. Processing payload...");
         if (payloadVector[8] == 0) // pmsg
         {
+            Serial.print("Received Pmsg: ");
+            Serial.println(pmsgListForBase[payloadVector[9]].c_str());
             inboxbucket.push_back(pmsgListForBase[payloadVector[9]]);
         }
         else if (payloadVector[8] == 1) // cmsg
         {
             std::string message(payloadVector.begin() + 9, payloadVector.end() - 1); // Exclude checksum
+            Serial.print("Received Cmsg: ");
+            Serial.println(message.c_str());
             inboxbucket.push_back(message);
         }
-        forwardPayload(); // Set the payload after processing
+        setPayload(payloadVector); // Set the payload after processing
+        Serial.println("Payload set successfully.");
+        // forwardPayload(); // Set the payload after processing
     }
+    else
+    {
+        Serial.println("Payload checks failed. Not processing.");
+    }
+    Serial.println("[UserDevicePayload::receive] End");
 }
 
 bool BaseDevicePayload::receive(const std::vector<int8_t> &payloadVector)
@@ -509,9 +557,21 @@ void InterDevicePayload::setPayloadForward(std::vector<int8_t> payloadVector)
     setChecksum();         // Set the checksum after populating MyPayload
 }
 
-std::vector<std::string> UserDevicePayload::getInbox()
+std::vector<std::string> *UserDevicePayload::getInboxBucket()
 {
-    return inboxbucket;
+    return &inboxbucket;
+}
+std::vector<std::string> *UserDevicePayload::getSentboxBucket()
+{
+    return &sentboxbucket;
+}
+std::vector<std::string> *UserDevicePayload::getGpsStringBucket()
+{
+    return &gpsstringbucket;
+}
+std::vector<UserDevicePayload::Coordinate> *UserDevicePayload::getGpsBucket()
+{
+    return &gpsbucket;
 }
 
 void UserDevicePayload::setInboxNew(const std::string &message)
@@ -519,13 +579,26 @@ void UserDevicePayload::setInboxNew(const std::string &message)
     inboxbucket.push_back(message);
 }
 
-void UserDevicePayload::printInbox()
+void UserDevicePayload::setSentboxNew(const std::string &message)
+{
+    sentboxbucket.push_back(message);
+}
+
+void UserDevicePayload::setGpsNew(const float &latitude, const float &longitude)
+{
+    Coordinate newGpsData = {latitude, longitude};
+    gpsbucket.push_back(newGpsData);
+    std::ostringstream oss;
+    oss << latitude << "," << longitude;
+    gpsstringbucket.push_back(oss.str());
+}
+
+void UserDevicePayload::printStorage()
 {
     Serial.println("---- Inbox ----");
     if (inboxbucket.empty())
     {
         Serial.println("Inbox is empty.");
-        return;
     }
 
     for (size_t i = 0; i < inboxbucket.size(); ++i)
@@ -536,13 +609,43 @@ void UserDevicePayload::printInbox()
         Serial.println(inboxbucket[i].c_str());
     }
     Serial.println("----------------");
+    Serial.println("---- Sentbox ----");
+    if (sentboxbucket.empty())
+    {
+        Serial.println("Sentbox is empty.");
+    }
+
+    for (size_t i = 0; i < sentboxbucket.size(); ++i)
+    {
+        Serial.print("Message ");
+        Serial.print(i + 1);
+        Serial.print(": ");
+        Serial.println(sentboxbucket[i].c_str());
+    }
+    Serial.println("----------------");
+    Serial.println("---- GPS Bucket ----");
+    if (gpsbucket.empty())
+    {
+        Serial.println("GPS Bucket is empty.");
+    }
+
+    for (size_t i = 0; i < gpsbucket.size(); ++i)
+    {
+        Serial.print("GPS Data ");
+        Serial.print(i + 1);
+        Serial.print(": ");
+        Serial.print(gpsbucket[i].latitude);
+        Serial.print(", ");
+        Serial.println(gpsbucket[i].longitude);
+    }
+    Serial.println("----------------");
 }
 
 void BaseDevicePayload::createPmsg(int8_t pmsgid, int8_t newUid, int8_t attempts)
 {
     clearPayload();        // Clear any existing payload data
-    MyPayload.dir = 1;     // u2b
-    MyPayload.uid = did;   // Set User ID to device ID
+    MyPayload.dir = 0;     // b2u
+    MyPayload.uid = newUid;   // Set User ID to device ID
     MyPayload.fLvL = dLvL; // Set Forwarding Level to device level
     MyPayload.mid = ++currentMessageId;
     MyPayload.retry = attempts; // Initialize retry count to 0
@@ -612,4 +715,7 @@ void BaseDevicePayload::createGps(float latitude, float longitude, int8_t newUid
     setChecksum(); // Calculate and set checksum
 }
 
-void receive(std::vector<int8_t> payloadVector) {}
+int8_t BaseDevicePayload::getUid(const std::vector<int8_t> &payloadVector)
+{
+    return payloadVector[1]
+}

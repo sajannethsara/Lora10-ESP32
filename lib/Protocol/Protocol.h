@@ -5,10 +5,10 @@
 #include <vector>
 #include <algorithm>
 #include <sstream>
+#include <iomanip> 
 #include <LoRa.h>
 
 #define MAX_ACKS 10
-
 
 class Payload
 {
@@ -37,6 +37,7 @@ protected: // List of messages
     AckItem ackbucket[MAX_ACKS];
 
 public:
+
     void clearPayload();
     int8_t calChecksumFromVector(const std::vector<int8_t> &payloadVector);
     int8_t calChecksumFromPayload();
@@ -58,6 +59,10 @@ public:
     std::vector<int8_t> getPayload();
     void printPayload();
     std::string getJsonPayload();
+    std::string getMsg(const std::vector<int8_t> &payloadVector);
+
+    std::vector<std::string> getPredefinedMessagesForUser();
+    std::vector<std::string> getPredefinedMessagesForBase();
 };
 
 /*
@@ -76,26 +81,37 @@ public:
 
 */
 
-
 class UserDevicePayload : public Payload
 {
-protected:
-    std::vector<std::string> inboxbucket; // Inbox for user device messages
-
 public:
     // u2b - 1
     UserDevicePayload(int did) : Payload(2, did, 127) {};
+    struct Coordinate
+    {
+        float latitude;
+        float longitude;
+    };
+    std::vector<Coordinate> gpsbucket;
+    std::vector<std::string> gpsstringbucket; // Inbox for user device messages         // GPS data bucket
+    std::vector<std::string> inboxbucket;     // Inbox for user device messages
+    std::vector<std::string> sentboxbucket;   // Outbox for user device messages
+
     void createPmsg(int8_t pmsgid, int8_t attempts = 0);
     void createCmsg(std::string cmsg, int8_t attempts = 0);
     void createGps(float latitude, float longitude, int8_t attempts = 0);
-    
-    bool verifyRelation(std::vector<int8_t> payloadVector);
-    // receive payload from base device only pmsg and cmsg
-    void receive(std::vector<int8_t> payloadVector);
 
-    std::vector<std::string> getInbox();
+    bool verifyRelation(const std::vector<int8_t> &payloadVector);
+    // receive payload from base device only pmsg and cmsg
+    void receive(const std::vector<int8_t> &payloadVector);
+
+    std::vector<std::string> *getInboxBucket();
+    std::vector<std::string> *getSentboxBucket();
+    std::vector<Coordinate> *getGpsBucket();
+    std::vector<std::string> *getGpsStringBucket();
     void setInboxNew(const std::string &message);
-    void printInbox();
+    void setSentboxNew(const std::string &message);
+    void setGpsNew(const float &latitude, const float &longitude);
+    void printStorage();
 };
 
 class InterDevicePayload : public Payload
@@ -117,6 +133,7 @@ public:
     void createPmsg(int8_t pmsgid, int8_t newUid, int8_t attempts = 0);
     void createCmsg(std::string cmsg, int8_t newUid, int8_t attempts = 0);
     void createGps(float latitude, float longitude, int8_t newUid, int8_t attempts = 0);
+    int8_t getUid(const std::vector<int8_t> &payloadVector);
 
     bool receive(const std::vector<int8_t> &payloadVector);
 };

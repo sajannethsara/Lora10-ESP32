@@ -1,8 +1,9 @@
 #include "BLEVectorSyncServer.h"
 #include <cstdio>
 
-BLEVectorSyncServer::BLEVectorSyncServer(const char *dn)
-    : deviceName(dn) {}
+BLEVectorSyncServer::BLEVectorSyncServer(const char *dn) {
+    this->deviceName = dn;
+}
 
 void BLEVectorSyncServer::addVector(BLEVectorSync *v)
 {
@@ -58,38 +59,19 @@ class MyServerCallbacks : public NimBLEServerCallbacks {
 
 } myServerCallbacks;
 
-// void BLEVectorSyncServer::begin(uint16_t mtu, esp_power_level_t txPower)
-// {
-//     NimBLEDevice::init(deviceName);
-//     NimBLEDevice::setMTU(mtu);
-//     NimBLEDevice::setPower(txPower);
-
-//     auto *server = NimBLEDevice::createServer();
-//     server->setCallbacks(new MyServerCallbacks());
-//     auto *service = server->createService(SERVICE_UUID);
-
-//     for (size_t i = 0; i < vectors.size(); ++i)
-//     {
-//         char sizeUUID[37], indexUUID[37], dataUUID[37], notifyUUID[37];
-//         makeVectorUUIDs(i, sizeUUID, indexUUID, dataUUID, notifyUUID);
-//         vectors[i]->createCharacteristics(service, sizeUUID, indexUUID, dataUUID, notifyUUID);
-//     }
-
-//     auto *adv = NimBLEDevice::getAdvertising();
-//     adv->addServiceUUID(SERVICE_UUID);
-//     adv->setName(deviceName.c_str());
-//     NimBLEAdvertisementData scanResponseData;
-//     adv->setScanResponseData(scanResponseData);
-//     service->start();
-//     adv->start();
-//     Serial.printf("BLE server started with service %s and %zu vectors\n", SERVICE_UUID, vectors.size());
-// }
 
 bool BLEVectorSyncServer::begin(uint16_t mtu, esp_power_level_t txPower)
 {
-    Serial.printf("Initializing NimBLE with device name: %s\n", deviceName.c_str());
-    NimBLEDevice::init(deviceName);
-    
+    NimBLEDevice::setDeviceName(deviceName.c_str());
+    if (!NimBLEDevice::init(deviceName) && !NimBLEDevice::setDeviceName(deviceName.c_str()))
+    {
+        Serial.printf("Failed to initialize NimBLE with device name: %s\n", deviceName.c_str());
+        return false;
+    }else
+    {
+        Serial.printf("NimBLE initialized with device name: %s\n", deviceName.c_str());
+    }
+
     if (!NimBLEDevice::setMTU(mtu))
     {
         Serial.printf("Failed to set MTU to %d\n", mtu);
@@ -137,6 +119,7 @@ bool BLEVectorSyncServer::begin(uint16_t mtu, esp_power_level_t txPower)
     auto *adv = NimBLEDevice::getAdvertising();
     adv->addServiceUUID(SERVICE_UUID);
     adv->setName(deviceName.c_str());
+    adv->setScanResponseData(adv->getAdvertisementData());
     Serial.printf("Starting advertising with name %s and service UUID %s\n",
                   deviceName.c_str(), SERVICE_UUID);
     if (!adv->start())
