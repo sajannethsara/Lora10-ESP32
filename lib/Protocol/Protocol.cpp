@@ -332,8 +332,13 @@ std::string Payload::getMsg(const std::vector<int8_t> &payloadVector)
     {
         return std::string(payloadVector.begin() + 10, payloadVector.end() - 1);
     }else if(payloadVector[8] == 2){
-        return "[GPS Cordinate]"
+        return "[GPS Cordinate]";
     }
+}
+
+int8_t Payload::getDid()
+{
+    return did;
 }
 
 std::vector<std::string> Payload::getPredefinedMessagesForUser()
@@ -717,5 +722,5 @@ void BaseDevicePayload::createGps(float latitude, float longitude, int8_t newUid
 
 int8_t BaseDevicePayload::getUid(const std::vector<int8_t> &payloadVector)
 {
-    return payloadVector[1]
+    return payloadVector[1];
 }

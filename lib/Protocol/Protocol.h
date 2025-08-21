@@ -60,6 +60,7 @@ public:
     void printPayload();
     std::string getJsonPayload();
     std::string getMsg(const std::vector<int8_t> &payloadVector);
+    int8_t getDid();
 
     std::vector<std::string> getPredefinedMessagesForUser();
     std::vector<std::string> getPredefinedMessagesForBase();
