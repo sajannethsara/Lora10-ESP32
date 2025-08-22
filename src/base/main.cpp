@@ -67,8 +67,8 @@ void setup()
     beep3();
     // Initialize LCD
     setupLCD();
-    displayText("Hello, World!", 0);
-    displayText("Huiiiiiiiiiiii", 1);
+    displayText("LORA 10 v1.0", 0);
+    displayText("Base Station Device", 1);
     loraQueue = xQueueCreate(10, sizeof(std::vector<int8_t> *));
     xSemaphore = xSemaphoreCreateMutex();
 

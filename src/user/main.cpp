@@ -69,6 +69,7 @@ struct ButtonConfig
     bool lastStable;
     uint32_t lastChangeMs;
 };
+
 ButtonConfig buttons[] = {
     {MODE_BTN, "MODE", 50, modeBtnPressed, false, 0}, // long debounce
     {UP_BTN, "UP", 50, upBtnPressed, false, 0},
@@ -76,6 +77,7 @@ ButtonConfig buttons[] = {
     {OK_BTN, "OK", 50, okBtnPressed, false, 0},
     {SLEEP_BTN, "SLEEP", 50, sleepBtnPressed, false, 0} // long debounce
 };
+
 const size_t BUTTON_COUNT = sizeof(buttons) / sizeof(buttons[0]);
 int page = 0;
 int states[5][2] = {0};
@@ -102,7 +104,8 @@ volatile float navBearing = 0.0f;  // bearing to current target (deg)
 volatile float navHeading = 0.0f;  // current compass heading (deg)
 
 // OLED
-U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);
+// U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);
+U8G2_SSD1309_128X128_NONAME0_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);  // fore Big one
 #define H_FONT u8g2_font_ncenB08_tr
 #define P_FONT u8g2_font_6x10_tr
 
@@ -615,17 +618,17 @@ void renderCompass()
     {
         // Header
         u8g2.setFont(H_FONT);
-        u8g2.drawStr(startp, 10, "BACK NAVIGATION");
-        u8g2.drawLine(0, 11, 127, 11);
+        u8g2.drawStr(startp, 16, "BACK NAVIGATION");
+        u8g2.drawLine(0, 18, 127, 18);
 
         if (states[3][1] == 0)
         {
             // --- Prompt to start reverse navigation ---
             u8g2.setFont(P_FONT);
-            u8g2.drawStr(startp, 25, "Do you want to start");
-            u8g2.drawStr(startp, 36, "back navigation?");
+            u8g2.drawStr(startp, 36, "Do you want to start");
+            u8g2.drawStr(startp, 48, "back navigation?");
 
-            // Option 0: "No" at y = 46
+            // Option 0: "No" at y = 62
             if (states[3][0] == 0)
             {
                 u8g2.drawBox(0, 38, 128, 10);
@@ -690,6 +693,7 @@ void renderCompass()
 
     } while (u8g2.nextPage());
 }
+
 
 void renderSent()
 {
