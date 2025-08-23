@@ -12,7 +12,8 @@
 class BLEVectorSyncServer {
 public:
     explicit BLEVectorSyncServer(const char* deviceName);
-
+    using DataCallback = std::function<void(const std::string&)>;
+    void setDataCallback(DataCallback cb);
     // Add a vector before begin()
     void addVector(BLEVectorSync* v);
 
@@ -20,9 +21,9 @@ public:
     bool begin(uint16_t mtu = 120, esp_power_level_t txPower = ESP_PWR_LVL_P9);
 
     std::string deviceName;
+    DataCallback dataCallback;
 private:
     std::vector<BLEVectorSync*> vectors;
-
     // A fixed base UUID for the service (you can change it if you want)
     static constexpr const char* SERVICE_UUID = "12345678-1234-5678-1234-56789abcdef0";
 

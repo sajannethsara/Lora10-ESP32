@@ -25,6 +25,7 @@ BLEVectorSyncServer bleServer("LORA10_Device");
 BLEVectorSync *gpsSync;
 BLEVectorSync *inboxSync;
 BLEVectorSync *sendboxSync;
+void handleMessageFromBLE(const std::string &msg);
 
 TaskHandle_t Task1;
 TaskHandle_t Task2;
@@ -106,6 +107,13 @@ volatile float navHeading = 0.0f;  // current compass heading (deg)
 // OLED
 // U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);
 U8G2_SSD1309_128X128_NONAME0_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);  // fore Big one
+// U8G2_SH1107_128X128_F_HW_I2C u8g2( U8G2_R0,U8X8_PIN_NONE);
+// U8G2_SH1107_SEEED_128X128_F_HW_I2C u8g2(
+//     U8G2_R0,
+//     U8X8_PIN_NONE,
+//     /* scl=*/22,
+//     /* sda=*/21);
+
 #define H_FONT u8g2_font_ncenB08_tr
 #define P_FONT u8g2_font_6x10_tr
 
@@ -126,6 +134,14 @@ void beep2();
 void beep3();
 void noTone();
 
+// Battry
+#define BATTERY_PIN 34
+const float R1 = 100000.0;     // 100k
+const float R2 = 47000.0;      // 47k
+const float MAX_VOLTAGE = 8.4; // Full
+const float MIN_VOLTAGE = 6.0; // Empty
+float readBatteryVoltage();
+
 void setup()
 {
     Serial.begin(115200);
@@ -141,6 +157,7 @@ void setup()
     bleServer.addVector(inboxSync);
     bleServer.addVector(sendboxSync);
     bleServer.addVector(gpsSync);
+    bleServer.setDataCallback(handleMessageFromBLE);
     while (!bleServer.begin(120, ESP_PWR_LVL_P9))
     {
         Serial.println("Failed to start BLE server, retrying...");
@@ -152,6 +169,8 @@ void setup()
     // pinMode(RED_LED, OUTPUT);
     // pinMode(BLUE_LED, OUTPUT);
     // digitalWrite(RED_LED, HIGH);
+    analogReadResolution(12);
+    analogSetAttenuation(ADC_11db);
     Serial.println("[+] LEDs initialized.");
 
     for (size_t i = 0; i < BUTTON_COUNT; i++)
@@ -353,19 +372,25 @@ void okBtnPressed()
 {
     if (xSemaphoreTake(xSemaphore, pdMS_TO_TICKS(200)))
     {
-        if (page == 1 && states[1][0] >= 0 && states[1][0] <= 1) // Inbox
+        if (page == 1) // Inbox
         {
-            states[1][0] = (states[1][0] + 1) % 2;
+            if (states[1][1] == 0)
+            {
+                // Switch from list view -> detail view of selected message
+                states[1][1] = 1;
+            }
+            else
+            {
+                // Already inside a message -> go back to list
+                states[1][1] = 0;
+            }
         }
         else if (page == 2) // Send
         {
             states[2][1] = 1;
             userDevice.createPmsg(states[2][0], 0); // Create predefined message
             std::vector<int8_t> *payloadVector = new std::vector<int8_t>(userDevice.getPayload());
-            // flag as "sending"
-            // int selectedMsg = states[2][0]; // selection index
             xQueueSend(loraQueue, &payloadVector, portMAX_DELAY); // send selection
-            // set to 0 after sending
         }
         else if (page == 3) // Compass
         {
@@ -378,10 +403,20 @@ void okBtnPressed()
                 states[3][1] = 0; // Reset detail flag
             }
         }
-        else if (page == 4 && states[4][0] >= 0 && states[4][0] <= 1) // SentBox
+        else if (page == 4) // SentBox
         {
-            states[4][0] = (states[4][0] + 1) % 2;
+            if (states[4][1] == 0)
+            {
+                // Switch from list view -> detail view of selected message
+                states[4][1] = 1;
+            }
+            else
+            {
+                // Already inside a message -> go back to list
+                states[4][1] = 0;
+            }
         }
+
         xSemaphoreGive(xSemaphore);
     }
 }
@@ -452,26 +487,76 @@ void renderWelcome()
     u8g2.firstPage();
     do
     {
+        float batteryVoltage = readBatteryVoltage();
+
+        // Calculate battery percentage
+        int percentage = round(((batteryVoltage - MIN_VOLTAGE) / (MAX_VOLTAGE - MIN_VOLTAGE)) * 100);
+        if (percentage > 100)
+            percentage = 100;
+        if (percentage < 0)
+            percentage = 0;
+
         u8g2.clearBuffer();
-        u8g2.setFont(H_FONT);           // Set header font
-        u8g2.drawStr(startp, 10, "HOME"); // Display welcome message
-        u8g2.drawLine(0, 11, 127, 11);  // Draw horizontal line below the text
 
+        // Header
         u8g2.setFont(H_FONT);
-        char rssiBuf[16];
-        sprintf(rssiBuf, "RSSI : %d", RSSI);
-        int rssiWidth = u8g2.getStrWidth(rssiBuf);
-        u8g2.drawStr((128 - rssiWidth) / 2, 30, rssiBuf); // centered
+        u8g2.drawStr(32, 18, "LORA10 DEVICE");
+        u8g2.drawLine(10, 22, 118, 22);
 
-        // --- GPS Status ---
-        const char* gpsStr = gpsFix ? "GPS : Active" : "GPS : Waiting...";
-        int gpsWidth = u8g2.getStrWidth(gpsStr);
-        u8g2.drawStr((128 - gpsWidth) / 2, 45, gpsStr);
+        // RSSI (signal strength) - top right
+        char rssiBuf[16];
+        sprintf(rssiBuf, "RSSI: %d", RSSI);
+        u8g2.setFont(P_FONT);
+        u8g2.drawStr(80, 12, rssiBuf);
+
+        // GPS Status - top left
+        const char *gpsStr = gpsFix ? "GPS: Active" : "GPS: Waiting...";
+        u8g2.drawStr(10, 12, gpsStr);
+
+        // Battery Icon (centered, large)
+        int bx = 34, by = 38, bw = 60, bh = 28;
+        u8g2.drawFrame(bx, by, bw, bh);            // battery body
+        u8g2.drawBox(bx + bw, by + 8, 6, bh - 16); // battery tip
+
+        // Fill battery level
+        int fillWidth = (bw - 4) * percentage / 100;
+        int fillColor = percentage > 20 ? 1 : 0; // red if low (simulate by invert)
+        if (fillColor == 0)
+        {
+            u8g2.setDrawColor(0);
+        }
+        u8g2.drawBox(bx + 2, by + 2, fillWidth, bh - 4);
+        u8g2.setDrawColor(1);
+
+        // Battery % text inside battery
+        char percentBuf[8];
+        sprintf(percentBuf, "%d%%", percentage);
+        int percentWidth = u8g2.getStrWidth(percentBuf);
+        u8g2.setFont(H_FONT);
+        u8g2.drawStr(bx + (bw - percentWidth) / 2, by + bh - 8, percentBuf);
+
+        // Battery voltage below battery
+        char voltBuf[16];
+        sprintf(voltBuf, "%.2fV", batteryVoltage);
+        int voltWidth = u8g2.getStrWidth(voltBuf);
+        u8g2.setFont(P_FONT);
+        u8g2.drawStr(bx + (bw - voltWidth) / 2, by + bh + 12, voltBuf);
+
+        // Footer
+        u8g2.setFont(P_FONT);
+        u8g2.drawLine(10, 120, 118, 120);
+        u8g2.drawStr(32, 127, "Press MODE to start");
+
+        u8g2.sendBuffer();
+
     } while (u8g2.nextPage());
 }
 
 void renderInbox()
 {
+    const int VISIBLE = 11;      // number of lines shown on screen at once
+    static int firstVisible = 0; // preserved between calls
+
     u8g2.firstPage();
     do
     {
@@ -481,34 +566,104 @@ void renderInbox()
         u8g2.drawLine(0, 11, 127, 11);
 
         u8g2.setFont(P_FONT);
-        if (inboxBucketPtr->size() == 0)
+        int total = (int)inboxBucketPtr->size();
+
+        if (total == 0)
         {
             u8g2.drawStr(startp, 25, "No messages");
         }
         else
         {
-            for (int i = 0; i < inboxBucketPtr->size() && i < 5; i++)
+            // clamp selected index
+            if (states[1][0] < 0)
+                states[1][0] = 0;
+            if (states[1][0] >= total)
+                states[1][0] = total - 1;
+
+            // ensure firstVisible is valid for current selection
+            if (states[1][0] < firstVisible)
             {
-                int y = 25 + i * 10;
-                if (i == states[1][0])
+                firstVisible = states[1][0];
+            }
+            else if (states[1][0] >= firstVisible + VISIBLE)
+            {
+                firstVisible = states[1][0] - VISIBLE + 1;
+            }
+
+            // clamp firstVisible bounds
+            if (firstVisible < 0)
+                firstVisible = 0;
+            if (firstVisible > total - VISIBLE)
+            {
+                firstVisible = max(0, total - VISIBLE);
+            }
+
+            // draw visible messages (max VISIBLE)
+            for (int row = 0; row < VISIBLE; row++)
+            {
+                int idx = firstVisible + row;
+                if (idx >= total)
+                    break;
+                int y = 25 + row * 10;
+
+                if (idx == states[1][0])
                 {
                     u8g2.drawBox(0, y - 8, 128, 10);
                     u8g2.setDrawColor(0);
-                    u8g2.drawStr(2, y, inboxBucketPtr->at(i).c_str());
+                    u8g2.drawStr(2, y, inboxBucketPtr->at(idx).c_str());
                     u8g2.setDrawColor(1);
                 }
                 else
                 {
-                    u8g2.drawStr(2, y, inboxBucketPtr->at(i).c_str());
+                    u8g2.drawStr(2, y, inboxBucketPtr->at(idx).c_str());
                 }
             }
-            // Show detail-flag if OK pressedxxx
+
             if (states[1][1])
             {
-                u8g2.drawBox(0, 58, 128, 6);
-                u8g2.setDrawColor(0);
-                u8g2.drawStr(startp, 63, "OK → Open Msg");
-                u8g2.setDrawColor(1);
+                // ensure selected index is valid
+                int sel = states[1][0];
+                int total = (int)inboxBucketPtr->size();
+                if (total <= 0)
+                {
+                    // nothing to show
+                }
+                else
+                {
+                    if (sel < 0)
+                        sel = 0;
+                    if (sel >= total)
+                        sel = total - 1;
+
+                    // clear the current buffer and draw only the selected message
+                    u8g2.clearBuffer();
+                    u8g2.setFont(P_FONT);
+                    u8g2.drawStr(startp, 10, "INBOX MESSAGE"); // header
+
+                    std::string msg = inboxBucketPtr->at(sel);
+                    const int maxCharsPerLine = 16; // tune to match your font/width
+                    const int yStart = 25;
+                    const int lineSpacing = 10;
+
+                    // Draw message wrapped into fixed-width chunks
+                    for (size_t pos = 0, line = 0; pos < msg.length(); pos += maxCharsPerLine, ++line)
+                    {
+                        std::string part = msg.substr(pos, maxCharsPerLine);
+                        int y = yStart + line * lineSpacing;
+                        if (y > 54)
+                            break; // avoid overwriting footer area
+                        u8g2.drawStr(startp, y, part.c_str());
+                    }
+
+                    // // footer: OK → Back
+                    // u8g2.drawBox(0, 58, 128, 6);
+                    // u8g2.setDrawColor(0);
+                    // u8g2.drawStr(startp, 63, "Press OK");
+                    // u8g2.setDrawColor(1);
+
+                    // send this buffer for immediate display
+                    u8g2.sendBuffer();
+                }
             }
         }
     } while (u8g2.nextPage());
@@ -516,7 +671,7 @@ void renderInbox()
 
 void renderSend()
 {
-    const int VISIBLE = 4;       // number of lines shown on screen at once
+    const int VISIBLE = 11;      // number of lines shown on screen at once
     static int firstVisible = 0; // preserved between calls
 
     u8g2.firstPage();
@@ -631,27 +786,27 @@ void renderCompass()
             // Option 0: "No" at y = 62
             if (states[3][0] == 0)
             {
-                u8g2.drawBox(0, 38, 128, 10);
+                u8g2.drawBox(0, 54, 128, 12);
                 u8g2.setDrawColor(0);
-                u8g2.drawStr(6, 46, "No");
+                u8g2.drawStr(6, 63, "No");
                 u8g2.setDrawColor(1);
             }
             else
             {
-                u8g2.drawStr(6, 46, "No");
+                u8g2.drawStr(6, 63, "No");
             }
 
             // Option 1: "Yes" at y = 56
             if (states[3][0] == 1)
             {
-                u8g2.drawBox(0, 48, 128, 10);
+                u8g2.drawBox(0, 66, 128, 12);
                 u8g2.setDrawColor(0);
-                u8g2.drawStr(6, 56, "Yes");
+                u8g2.drawStr(6, 75, "Yes");
                 u8g2.setDrawColor(1);
             }
             else
             {
-                u8g2.drawStr(6, 56, "Yes");
+                u8g2.drawStr(6, 75, "Yes");
             }
         }
         else
@@ -694,9 +849,11 @@ void renderCompass()
     } while (u8g2.nextPage());
 }
 
-
 void renderSent()
 {
+    const int VISIBLE = 11;      // number of lines shown on screen at once
+    static int firstVisible = 0; // preserved between calls
+
     u8g2.firstPage();
     do
     {
@@ -706,34 +863,105 @@ void renderSent()
         u8g2.drawLine(0, 11, 127, 11);
 
         u8g2.setFont(P_FONT);
-        if (sentBoxBucketPtr->size() == 0)
+        int total = (int)sentBoxBucketPtr->size();
+
+        if (total == 0)
         {
             u8g2.drawStr(startp, 25, "No messages");
         }
         else
         {
-            for (int i = 0; i < sentBoxBucketPtr->size() && i < 5; i++)
+            // clamp selected index (use states[4] for SentBox)
+            if (states[4][0] < 0)
+                states[4][0] = 0;
+            if (states[4][0] >= total)
+                states[4][0] = total - 1;
+
+            // ensure firstVisible is valid for current selection
+            if (states[4][0] < firstVisible)
             {
-                int y = 25 + i * 10;
-                if (i == states[1][0])
+                firstVisible = states[4][0];
+            }
+            else if (states[4][0] >= firstVisible + VISIBLE)
+            {
+                firstVisible = states[4][0] - VISIBLE + 1;
+            }
+
+            // clamp firstVisible bounds
+            if (firstVisible < 0)
+                firstVisible = 0;
+            if (firstVisible > total - VISIBLE)
+            {
+                firstVisible = max(0, total - VISIBLE);
+            }
+
+            // draw visible messages (max VISIBLE)
+            for (int row = 0; row < VISIBLE; row++)
+            {
+                int idx = firstVisible + row;
+                if (idx >= total)
+                    break;
+                int y = 25 + row * 10;
+
+                if (idx == states[4][0])
                 {
                     u8g2.drawBox(0, y - 8, 128, 10);
                     u8g2.setDrawColor(0);
-                    u8g2.drawStr(startp, y, sentBoxBucketPtr->at(i).c_str());
+                    u8g2.drawStr(startp, y, sentBoxBucketPtr->at(idx).c_str());
                     u8g2.setDrawColor(1);
                 }
                 else
                 {
-                    u8g2.drawStr(startp, y, sentBoxBucketPtr->at(i).c_str());
+                    u8g2.drawStr(startp, y, sentBoxBucketPtr->at(idx).c_str());
                 }
             }
-            // Show detail-flag if OK pressedxxx
-            if (states[1][1])
+
+            // Show detail-flag if OK pressed (same behavior you had)
+            if (states[4][1])
             {
-                u8g2.drawBox(0, 58, 128, 6);
-                u8g2.setDrawColor(0);
-                u8g2.drawStr(startp, 63, "OK → Open Msg");
-                u8g2.setDrawColor(1);
+                // ensure selected index is valid
+                int sel = states[4][0];
+                int total = (int)sentBoxBucketPtr->size();
+                if (total <= 0)
+                {
+                    // nothing to show (shouldn't happen because outer code checked total > 0)
+                }
+                else
+                {
+                    if (sel < 0)
+                        sel = 0;
+                    if (sel >= total)
+                        sel = total - 1;
+
+                    // clear the current buffer and draw only the selected message
+                    u8g2.clearBuffer();
+                    u8g2.setFont(P_FONT);
+                    u8g2.drawStr(startp, 10, "SENT MESSAGE"); // header
+
+                    std::string msg = sentBoxBucketPtr->at(sel);
+                    const int maxCharsPerLine = 16; // tune to match your font/width
+                    const int yStart = 25;
+                    const int lineSpacing = 10;
+
+                    // Draw message wrapped into fixed-width chunks
+                    for (size_t pos = 0, line = 0; pos < msg.length(); pos += maxCharsPerLine, ++line)
+                    {
+                        std::string part = msg.substr(pos, maxCharsPerLine);
+                        int y = yStart + line * lineSpacing;
+                        if (y > 54)
+                            break; // avoid overwriting footer area
+                        u8g2.drawStr(startp, y, part.c_str());
+                    }
+
+                    // // footer: OK → Back
+                    // u8g2.drawBox(0, 58, 128, 6);
+                    // u8g2.setDrawColor(0);
+                    // u8g2.drawStr(startp, 63, "Press OK"); // arrow char optional
+                    // u8g2.setDrawColor(1);
+
+                    // send this buffer for immediate display (keeps behavior similar to your SEND screen)
+                    u8g2.sendBuffer();
+                }
             }
         }
     } while (u8g2.nextPage());
@@ -896,9 +1124,9 @@ void _BackNavigationTask(void *pvParameters)
             if (newHeading < 0)
                 newHeading += 360.0f;
 
-            heading = newHeading;    // update global heading
-            navHeading = newHeading; // also mirror to navHeading for reverse nav usage
-            pathIndex = gpsBucket->size() - 1 ; // update pathIndex from gpsBucket size  
+            heading = newHeading;              // update global heading
+            navHeading = newHeading;           // also mirror to navHeading for reverse nav usage
+            pathIndex = gpsBucket->size() - 1; // update pathIndex from gpsBucket size
 
             if (pathIndex >= 0)
             {
@@ -1075,63 +1303,92 @@ float calculateBearing(float lat1, float lon1, float lat2, float lon2)
     return fmod(brng + 360.0f, 360.0f);
 }
 
+void setupBuzzer()
+{
+    // Initialize the buzzer pin as output
+    pinMode(BUZZER_PIN, OUTPUT);
 
-void setupBuzzer() {
-  // Initialize the buzzer pin as output
-  pinMode(BUZZER_PIN, OUTPUT);
-  
-  // For passive buzzer, set up PWM
-  ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
-  ledcAttachPin(BUZZER_PIN, PWM_CHANNEL);
-  
-  // Ensure buzzer is off initially
-  noTone();
+    // For passive buzzer, set up PWM
+    ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
+    ledcAttachPin(BUZZER_PIN, PWM_CHANNEL);
+
+    // Ensure buzzer is off initially
+    noTone();
 }
 
 // Function for a simple short beep (works for active or passive buzzer)
-void beep() {
-  // For active buzzer: turn on for 100ms
-  // For passive buzzer: generate a 1000Hz tone for 100ms
-  #ifdef ACTIVE_BUZZER
+void beep()
+{
+// For active buzzer: turn on for 100ms
+// For passive buzzer: generate a 1000Hz tone for 100ms
+#ifdef ACTIVE_BUZZER
     digitalWrite(BUZZER_PIN, HIGH);
     delay(100);
     digitalWrite(BUZZER_PIN, LOW);
-  #else
-    ledcWriteTone(PWM_CHANNEL, 1000);  // 1000Hz tone
+#else
+    ledcWriteTone(PWM_CHANNEL, 1000); // 1000Hz tone
     delay(100);
     noTone();
-  #endif
+#endif
 }
 
 // Function for notification sound (two short beeps)
-void beep2() {
-  beep();
-  delay(100);  // Short pause between beeps
-  beep();
+void beep2()
+{
+    beep();
+    delay(100); // Short pause between beeps
+    beep();
 }
 
 // Function for error sound (longer, lower-pitched beeps)
-void beep3() {
-  #ifdef ACTIVE_BUZZER
+void beep3()
+{
+#ifdef ACTIVE_BUZZER
     digitalWrite(BUZZER_PIN, HIGH);
-    delay(500);  // Longer beep
+    delay(500); // Longer beep
     digitalWrite(BUZZER_PIN, LOW);
     delay(100);
     digitalWrite(BUZZER_PIN, HIGH);
     delay(500);
     digitalWrite(BUZZER_PIN, LOW);
-  #else
-    ledcWriteTone(PWM_CHANNEL, 500);  // Lower 500Hz tone for error
+#else
+    ledcWriteTone(PWM_CHANNEL, 500); // Lower 500Hz tone for error
     delay(500);
     noTone();
     delay(100);
     ledcWriteTone(PWM_CHANNEL, 500);
     delay(500);
     noTone();
-  #endif
+#endif
 }
 
 // Helper function to stop tone (for passive buzzer)
-void noTone() {
-  ledcWrite(PWM_CHANNEL, 0);  // Stop PWM signal
+void noTone()
+{
+    ledcWrite(PWM_CHANNEL, 0); // Stop PWM signal
+}
+
+float readBatteryVoltage()
+{
+    long sum = 0;
+    const int samples = 20; // averaging for stability
+    for (int i = 0; i < samples; i++)
+    {
+        sum += analogRead(BATTERY_PIN);
+        delay(5);
+    }
+    int rawADC = sum / samples;
+
+    float adcVoltage = (rawADC / 4095.0) * 3.3; // pin voltage
+    float batteryVoltage = adcVoltage * ((R1 + R2) / R2);
+
+    return batteryVoltage;
+}
+
+void handleMessageFromBLE(const std::string &msg)
+{
+    Serial.printf("Handling message from BLE (Main.cpp) : %s\n", msg.c_str());
+    userDevice.createCmsg(msg , 0);
+    std::vector<int8_t> *payloadVector = new std::vector<int8_t>(userDevice.getPayload());
+    xQueueSend(loraQueue, &payloadVector, portMAX_DELAY); // send selection
 }

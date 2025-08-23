@@ -16,7 +16,8 @@ protected: // List of messages
     int type;
     int did;
     int dLvL;
-    int32_t currentMessageId = 1023; // Current message ID
+    int32_t currentMessageId = 1023;
+    int counter = 0; // Current message ID
     struct myPayload
     {
         int8_t dir;               // Direction of the message

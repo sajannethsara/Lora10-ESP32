@@ -1,8 +1,15 @@
 #include "BLEVectorSyncServer.h"
 #include <cstdio>
 
-BLEVectorSyncServer::BLEVectorSyncServer(const char *dn) {
+BLEVectorSyncServer::BLEVectorSyncServer(const char *dn)
+{
     this->deviceName = dn;
+}
+
+void BLEVectorSyncServer::setDataCallback(DataCallback cb)
+{
+    dataCallback = cb;
+    Serial.printf("[--BLE--] Data callback set for device: %s\n", deviceName.c_str());
 }
 
 void BLEVectorSyncServer::addVector(BLEVectorSync *v)
@@ -39,26 +46,44 @@ void BLEVectorSyncServer::makeVectorUUIDs(size_t i, char *sizeUUID, char *indexU
              i, sizeUUID, indexUUID, dataUUID, notifyUUID);
 }
 
-class MyServerCallbacks : public NimBLEServerCallbacks {
-    void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
+class MyServerCallbacks : public NimBLEServerCallbacks
+{
+    void onConnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo) override
+    {
         Serial.printf("Client address: %s\n", connInfo.getAddress().toString().c_str());
 
         pServer->updateConnParams(connInfo.getConnHandle(), 24, 48, 0, 180);
     }
 
-    void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override {
+    void onDisconnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo, int reason) override
+    {
         Serial.printf("Client disconnected - start advertising\n");
         NimBLEDevice::startAdvertising();
     }
 
-    void onMTUChange(uint16_t MTU, NimBLEConnInfo& connInfo) override {
+    void onMTUChange(uint16_t MTU, NimBLEConnInfo &connInfo) override
+    {
         Serial.printf("MTU updated: %u for connection ID: %u\n", MTU, connInfo.getConnHandle());
     }
 
-
-
 } myServerCallbacks;
 
+// Optional: set a callback for when a message is received
+class MessageCallback : public NimBLECharacteristicCallbacks
+{
+public:
+    using DataCallback = std::function<void(const std::string&)>;
+    explicit MessageCallback(DataCallback cb) : dataCallback(cb) {}
+
+    void onWrite(NimBLECharacteristic *ch, NimBLEConnInfo& connInfo) override {
+        std::string msg = ch->getValue();
+        if (dataCallback) {
+            dataCallback(msg); // Call the user-defined callback
+        }
+    }
+private:
+    DataCallback dataCallback;
+};
 
 bool BLEVectorSyncServer::begin(uint16_t mtu, esp_power_level_t txPower)
 {
@@ -67,7 +92,8 @@ bool BLEVectorSyncServer::begin(uint16_t mtu, esp_power_level_t txPower)
     {
         Serial.printf("Failed to initialize NimBLE with device name: %s\n", deviceName.c_str());
         return false;
-    }else
+    }
+    else
     {
         Serial.printf("NimBLE initialized with device name: %s\n", deviceName.c_str());
     }
@@ -108,6 +134,15 @@ bool BLEVectorSyncServer::begin(uint16_t mtu, esp_power_level_t txPower)
         Serial.printf("Adding vector %d: %s\n", i, vectors[i]->name.c_str());
         vectors[i]->createCharacteristics(service, sizeUUID, indexUUID, dataUUID, notifyUUID);
     }
+
+    // Create a characteristic for messages from mobile app to ESP32
+    static const char *MESSAGE_UUID = "12345678-1234-5678-1234-56789abcffff";
+    NimBLECharacteristic *messageChar = service->createCharacteristic(
+        MESSAGE_UUID,
+        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
+    messageChar->setValue(""); // Initialize with empty string
+
+    messageChar->setCallbacks(new MessageCallback(dataCallback));
 
     if (!service->start())
     {

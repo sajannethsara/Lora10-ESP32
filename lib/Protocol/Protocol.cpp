@@ -500,14 +500,15 @@ void UserDevicePayload::receive(const std::vector<int8_t> &payloadVector)
         {
             Serial.print("Received Pmsg: ");
             Serial.println(pmsgListForBase[payloadVector[9]].c_str());
-            inboxbucket.push_back(pmsgListForBase[payloadVector[9]]);
+            // inboxbucket.push_back(pmsgListForBase[payloadVector[9]]);
+            setInboxNew(pmsgListForBase[payloadVector[9]]); // Add to inbox
         }
         else if (payloadVector[8] == 1) // cmsg
         {
             std::string message(payloadVector.begin() + 9, payloadVector.end() - 1); // Exclude checksum
             Serial.print("Received Cmsg: ");
             Serial.println(message.c_str());
-            inboxbucket.push_back(message);
+            setInboxNew(message);
         }
         setPayload(payloadVector); // Set the payload after processing
         Serial.println("Payload set successfully.");
@@ -581,12 +582,12 @@ std::vector<UserDevicePayload::Coordinate> *UserDevicePayload::getGpsBucket()
 
 void UserDevicePayload::setInboxNew(const std::string &message)
 {
-    inboxbucket.push_back(message);
+    inboxbucket.push_back( std::to_string(counter++) + ": " + message);
 }
 
 void UserDevicePayload::setSentboxNew(const std::string &message)
 {
-    sentboxbucket.push_back(message);
+    sentboxbucket.push_back( std::to_string(counter++) + ": " + message);
 }
 
 void UserDevicePayload::setGpsNew(const float &latitude, const float &longitude)
