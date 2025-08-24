@@ -506,6 +506,7 @@ void _LoRaListenTask(void *pvParameters)
                 newReceivedPayload.reserve(packetSize); // Pre-allocate memory
                 
                 RSSI = LoRa.packetRssi();
+                Serial.printf("[LoRa] RSSI : %d \n",RSSI);
                 
                 // Read all available data
                 while (LoRa.available())

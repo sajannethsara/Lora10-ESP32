@@ -1,84 +1,76 @@
-#include <Arduino.h>
-#include "BLEVectorSyncServer.h"
+#include <SPI.h>
+#include <LoRa.h>
+#include <Wire.h>
+#include <U8g2lib.h>
 
-// Your app's vectors (non-const so you can push; library holds const& to them)
-std::vector<std::string> inbox;
-std::vector<std::string> sendbox;
-std::vector<std::string> gps;
+// LoRa Pins
+#define SS 5
+#define RST 14
+#define DIO0 2
 
-// Sync wrappers
-BLEVectorSyncServer bleServer("ESP32_Sync_Device");
-BLEVectorSync inboxSync("inbox", inbox);
-BLEVectorSync sendboxSync("sendbox", sendbox);
-BLEVectorSync gpsSync("gps", gps);
+// OLED display settings (example: SSD1306 128x64 I2C)
+U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 
-// Example: safely push into a vector using its mutex
-static void pushInboxSafe(const std::string &s)
-{
-    xSemaphoreTake(inboxSync.getMutex(), portMAX_DELAY);
-    inbox.push_back(s);
-    xSemaphoreGive(inboxSync.getMutex());
-}
-
-static void pushSendboxSafe(const std::string &s)
-{
-    xSemaphoreTake(sendboxSync.getMutex(), portMAX_DELAY);
-    sendbox.push_back(s);
-    xSemaphoreGive(sendboxSync.getMutex());
-}
-
-static void pushGpsSafe(const std::string &s)
-{
-    xSemaphoreTake(gpsSync.getMutex(), portMAX_DELAY);
-    gps.push_back(s);
-    xSemaphoreGive(gpsSync.getMutex());
-}
-
-void setup()
-{
+void setup() {
     Serial.begin(115200);
-    delay(100);
 
-    // Optional: cap max read bytes (0 = unlimited, rely on MTU)
-    inboxSync.setMaxReadBytes(240);
+    // Initialize OLED
+    u8g2.begin();
+    u8g2.clearBuffer();
+    u8g2.setFont(u8g2_font_ncenB08_tr);
+    u8g2.drawStr(0, 12, "LoRa Receiver Init");
+    u8g2.sendBuffer();
 
-    // Register vectors
-    bleServer.addVector(&inboxSync);
-    bleServer.addVector(&sendboxSync);
-    bleServer.addVector(&gpsSync);
-
-    // Start BLE (MTU 247 ~ 244 bytes payload per GATT read)
-    while (!bleServer.begin(120, ESP_PWR_LVL_P9))
-    {
-        Serial.println("Failed to start BLE server, retrying...");
-        delay(1000);
+    // Initialize LoRa
+    LoRa.setPins(SS, RST, DIO0);
+    if (!LoRa.begin(433E6)) {
+        u8g2.clearBuffer();
+        u8g2.drawStr(0, 12, "LoRa Failed!");
+        u8g2.sendBuffer();
+        while (true);
     }
-    Serial.println("[BLE] server started successfully");
-    // Seed demo data (thread-safe)
-    pushInboxSafe("1: hello");
-    pushInboxSafe("3: how are you?");
-    pushSendboxSafe("2: sent OK");
-    pushGpsSafe("7.8731,80.7718");
+
+    // Max Range Settings
+    LoRa.setSpreadingFactor(12);
+    LoRa.setSignalBandwidth(62.5E3);
+    LoRa.setCodingRate4(8);
+    LoRa.setTxPower(20);
+
+    u8g2.clearBuffer();
+    u8g2.drawStr(0, 12, "LoRa Receiver OK");
+    u8g2.sendBuffer();
+    delay(2000);
+    u8g2.clearBuffer();
+    u8g2.sendBuffer();
+
+    Serial.println("LoRa Receiver Ready");
 }
-int count = 0;
-void loop()
-{
-    // Periodically check for vector growth and notify subscribers
-    inboxSync.checkForUpdates();
-    sendboxSync.checkForUpdates();
-    gpsSync.checkForUpdates();
 
-    // Demo: append new items every 10s
-    static uint32_t last = 0;
-    if (millis() - last > 10000)
-    {
-        last = millis();
-        pushInboxSafe("1: hello");
-        pushInboxSafe("3: how are you?" + std::to_string(count++));
-        pushSendboxSafe("2: sent OK");
-        pushGpsSafe("7.8731,80.7718");
-        Serial.println("Appended demo items.");
+void loop() {
+    int packetSize = LoRa.parsePacket();
+    if (packetSize) {
+        String received = "";
+        while (LoRa.available()) {
+            received += (char)LoRa.read();
+        }
+
+        int rssi = LoRa.packetRssi();
+
+        // Debug in Serial
+        Serial.println("====================");
+        Serial.println("Received: " + received);
+        Serial.print("RSSI: ");
+        Serial.println(rssi);
+        Serial.println("====================");
+
+        // Display on OLED
+        u8g2.clearBuffer();
+        u8g2.setFont(u8g2_font_ncenB08_tr);
+        u8g2.drawStr(0, 12, "Msg Received:");
+        u8g2.drawStr(0, 28, received.c_str());
+        char rssiStr[20];
+        snprintf(rssiStr, sizeof(rssiStr), "RSSI: %d", rssi);
+        u8g2.drawStr(0, 44, rssiStr);
+        u8g2.sendBuffer();
     }
-
-    delay(200);
 }

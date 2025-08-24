@@ -12,7 +12,7 @@
 #include "driver/rtc_io.h"
 #include "esp32/rom/uart.h"
 
-UserDevicePayload userDevice(77);
+UserDevicePayload userDevice(42);
 std::vector<std::string> PredefinedMessages = userDevice.getPredefinedMessagesForUser();
 UserDevicePayload::Coordinate currentDeviceGPS;
 bool gpsFix = false;
@@ -80,8 +80,10 @@ ButtonConfig buttons[] = {
 };
 
 const size_t BUTTON_COUNT = sizeof(buttons) / sizeof(buttons[0]);
+
 int page = 0;
 int states[5][2] = {0};
+
 SemaphoreHandle_t xSemaphore;
 SemaphoreHandle_t i2cMutex;
 QueueHandle_t loraQueue;
@@ -106,7 +108,7 @@ volatile float navHeading = 0.0f;  // current compass heading (deg)
 
 // OLED
 // U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);
-U8G2_SSD1309_128X128_NONAME0_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);  // fore Big one
+U8G2_SSD1309_128X128_NONAME0_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE); // fore Big one
 // U8G2_SH1107_128X128_F_HW_I2C u8g2( U8G2_R0,U8X8_PIN_NONE);
 // U8G2_SH1107_SEEED_128X128_F_HW_I2C u8g2(
 //     U8G2_R0,
@@ -116,6 +118,71 @@ U8G2_SSD1309_128X128_NONAME0_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);  
 
 #define H_FONT u8g2_font_ncenB08_tr
 #define P_FONT u8g2_font_6x10_tr
+
+#define im_width 128
+#define im_height 48
+static const uint8_t im_bits[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7f, 0x00, 0x80, 0xff,
+                                  0xff, 0xcf, 0xff, 0xff, 0xe7, 0xff, 0xff, 0x07, 0xf8, 0xf3, 0xff, 0xff,
+                                  0x7f, 0x00, 0x80, 0xff, 0xff, 0xcf, 0xff, 0xff, 0xe7, 0xff, 0xff, 0x07,
+                                  0xf8, 0xf3, 0xff, 0xff, 0x7f, 0x00, 0x80, 0xff, 0xff, 0xcf, 0xff, 0xff,
+                                  0xe7, 0xff, 0xff, 0x07, 0xf8, 0xf3, 0xff, 0xff, 0x7f, 0x00, 0x80, 0xff,
+                                  0xff, 0xcf, 0xff, 0xff, 0xe7, 0xff, 0xff, 0x07, 0xf8, 0xf3, 0xff, 0xff,
+                                  0x7f, 0x00, 0x80, 0xff, 0xff, 0xcf, 0xff, 0xff, 0xe7, 0xff, 0xff, 0x07,
+                                  0xf8, 0xf3, 0xff, 0xff, 0x7f, 0x00, 0x80, 0xff, 0xff, 0xcf, 0xff, 0xff,
+                                  0xe7, 0xff, 0xff, 0x07, 0xf8, 0xf3, 0xff, 0xff, 0x7f, 0x00, 0x80, 0xff,
+                                  0xff, 0xcf, 0xff, 0xff, 0xe7, 0xff, 0xff, 0x07, 0xf8, 0xf3, 0xff, 0xff,
+                                  0x7f, 0x00, 0x80, 0x3f, 0xe0, 0xcf, 0x3f, 0xf8, 0xe7, 0x1f, 0xf8, 0x07,
+                                  0xf8, 0xf3, 0xff, 0xff, 0x7f, 0x00, 0x80, 0x3f, 0xe0, 0xcf, 0x3f, 0xfc,
+                                  0xe7, 0x1f, 0xf8, 0x07, 0xf8, 0xf3, 0xff, 0xff, 0x7f, 0x00, 0x80, 0x3f,
+                                  0xe0, 0xcf, 0x3f, 0xfe, 0xe7, 0xff, 0xff, 0x07, 0xf8, 0xf3, 0x9f, 0xff,
+                                  0x7f, 0x00, 0x80, 0x3f, 0xe0, 0xcf, 0x3f, 0xff, 0xe3, 0xff, 0xff, 0x07,
+                                  0xf8, 0xf3, 0x1f, 0xff, 0x7f, 0x00, 0x80, 0x3f, 0xe0, 0xcf, 0xbf, 0xff,
+                                  0xe1, 0xff, 0xff, 0x07, 0xf8, 0xf3, 0x0f, 0xff, 0x7f, 0x00, 0x80, 0x3f,
+                                  0xe0, 0xcf, 0xdf, 0xff, 0xe0, 0xff, 0xff, 0x07, 0xf8, 0xf3, 0x07, 0xfe,
+                                  0x7f, 0x00, 0x80, 0x3f, 0xe0, 0xcf, 0xbf, 0xff, 0xe1, 0xff, 0xff, 0x07,
+                                  0xf8, 0xf3, 0x03, 0xfc, 0x7f, 0x00, 0x80, 0x3f, 0xe0, 0xcf, 0x3f, 0xff,
+                                  0xe3, 0xff, 0xff, 0x07, 0xf8, 0xf3, 0x03, 0xfc, 0x7f, 0x00, 0x80, 0x3f,
+                                  0xe0, 0xcf, 0x3f, 0xfe, 0xe7, 0xff, 0xff, 0x07, 0xf8, 0xf3, 0x01, 0xf8,
+                                  0x7f, 0x00, 0x80, 0x3f, 0xe0, 0xcf, 0x3f, 0xfc, 0xe7, 0x1f, 0xf8, 0x07,
+                                  0xf8, 0xf3, 0xff, 0xff, 0x7f, 0x00, 0x80, 0x3f, 0xe0, 0xcf, 0x3f, 0xf8,
+                                  0xe7, 0x1f, 0xf8, 0x07, 0xf8, 0xf3, 0xff, 0xff, 0xff, 0xff, 0x9f, 0xff,
+                                  0xff, 0xcf, 0x3f, 0xf0, 0xe7, 0x1f, 0xf8, 0x07, 0xf8, 0xf3, 0xff, 0xff,
+                                  0xff, 0xff, 0x9f, 0xff, 0xff, 0xcf, 0x3f, 0xe0, 0xe7, 0x1f, 0xf8, 0x07,
+                                  0xf8, 0xf3, 0xff, 0xff, 0xff, 0xff, 0x9f, 0xff, 0xff, 0xcf, 0x3f, 0xc0,
+                                  0xe7, 0x1f, 0xf8, 0x07, 0xf8, 0xf3, 0xff, 0xff, 0xff, 0xff, 0x9f, 0xff,
+                                  0xff, 0xcf, 0x3f, 0x80, 0xe7, 0x1f, 0xf8, 0x07, 0xf8, 0xf3, 0xff, 0xff,
+                                  0xff, 0xff, 0x9f, 0xff, 0xff, 0xcf, 0x3f, 0x00, 0xe7, 0x1f, 0xf8, 0x07,
+                                  0xf8, 0xf3, 0xff, 0xff, 0xff, 0xff, 0x9f, 0xff, 0xff, 0xcf, 0x3f, 0x00,
+                                  0xe6, 0x1f, 0xf8, 0x07, 0xf8, 0xf3, 0xff, 0xff, 0xff, 0xff, 0x9f, 0xff,
+                                  0xff, 0xcf, 0x3f, 0x00, 0xe4, 0x1f, 0xf8, 0x07, 0xf8, 0xf3, 0xff, 0xff,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3f, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3e, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3c, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 // GPS
 #define GPS_RX_PIN 16
@@ -138,7 +205,7 @@ void noTone();
 #define BATTERY_PIN 34
 const float R1 = 100000.0;     // 100k
 const float R2 = 47000.0;      // 47k
-const float MAX_VOLTAGE = 8.4; // Full
+const float MAX_VOLTAGE = 8.4; // Fullv
 const float MIN_VOLTAGE = 6.0; // Empty
 float readBatteryVoltage();
 
@@ -219,6 +286,7 @@ void setup()
 
     // digitalWrite(BLUE_LED, HIGH);
     vTaskDelay(1000 / portTICK_PERIOD_MS);
+    beep3();
     // digitalWrite(RED_LED, LOW);
     // digitalWrite(BLUE_LED, LOW);
 }
@@ -233,11 +301,21 @@ void modeBtnPressed()
 {
     if (xSemaphoreTake(xSemaphore, pdMS_TO_TICKS(200)))
     {
-        if (page == 3 && states[3][1] == 1) // Compass
+        if (page == 1 && states[1][1] == 1) // Inbox detail view
         {
-            states[3][1] = 0; // Toggle compass off
+            states[1][1] = 0; // Go back to list view
         }
-        page = (page + 1) % 5; // Cycle through screens 0 to 4
+        if (page == 3 && (states[3][1] == 1 || states[3][1] == 2))
+        {
+            // Return to selection prompt when leaving page 3
+            states[3][1] = 0; // 0 = show selection prompt next time
+            states[3][0] = 0; // optional: reset cursor to "Compass"
+        }
+        if (page == 4 && states[4][1] == 1) // SentBox detail view
+        {
+            states[4][1] = 0; // Go back to list view
+        }
+        page = (page + 1) % 5; // Cycle through screens 0..4
         xSemaphoreGive(xSemaphore);
     }
 }
@@ -299,7 +377,7 @@ void sleepBtnPressed()
             }
             userDevice.receive(newReceivedPayload);
             Serial.println("[Payload Received]");
-            Serial.println(userDevice.getJsonPayload().c_str());
+            // Serial.println(userDevice.getJsonPayload().c_str());
         }
     }
     else
@@ -466,7 +544,7 @@ void _ButtonPressTask(void *pvParameters)
                     { // Press event
                         Serial.println(buttons[i].name);
                         buttons[i].onPress();
-                        // beep2();
+                        beep();
                     }
                 }
             }
@@ -482,75 +560,156 @@ void _ButtonPressTask(void *pvParameters)
 }
 
 // OLED
+
 void renderWelcome()
 {
+    const int LOGO_HEIGHT = 48;
+
+    const int margin = 8;
+    const int content_x = margin;
+    const int content_width = 128 - 2 * margin;
+
+    const int bx = margin;
+    const int by = LOGO_HEIGHT + 8;
+    const int bw = 36;
+    const int bh = 18;
+    const int tip_w = 4;
+    const int tip_h = bh / 2;
+
+    const int text_x = bx + bw + tip_w + 8;
+    const int pct_y = by + (bh / 2) + 4;
+    const int first_line_y = pct_y;
+    const int rssi_y = by + bh + 16;
+    const int gps_y = rssi_y + 16;
+
+    float batteryVoltage = readBatteryVoltage();
+    int percentage = round(((batteryVoltage - MIN_VOLTAGE) / (MAX_VOLTAGE - MIN_VOLTAGE)) * 100);
+    if (percentage > 100)
+        percentage = 100;
+    if (percentage < 0)
+        percentage = 0;
+
     u8g2.firstPage();
     do
     {
-        float batteryVoltage = readBatteryVoltage();
+        // --- LOGO AREA ---
+        // Draw the logo at (0,0)
+        u8g2.drawXBMP(0, 0, im_width, im_height, im_bits);
+        u8g2.drawLine(0, im_height - 2, 127, im_height - 2);
+        u8g2.drawLine(0, im_height - 1, 127, im_height - 1);
 
-        // Calculate battery percentage
-        int percentage = round(((batteryVoltage - MIN_VOLTAGE) / (MAX_VOLTAGE - MIN_VOLTAGE)) * 100);
-        if (percentage > 100)
-            percentage = 100;
-        if (percentage < 0)
-            percentage = 0;
+        // --- Battery icon (small) ---
+        u8g2.drawFrame(bx, by, bw, bh);
+        u8g2.drawBox(bx + bw, by + (bh - tip_h) / 2, tip_w, tip_h);
 
-        u8g2.clearBuffer();
-
-        // Header
-        u8g2.setFont(H_FONT);
-        u8g2.drawStr(32, 18, "LORA10 DEVICE");
-        u8g2.drawLine(10, 22, 118, 22);
-
-        // RSSI (signal strength) - top right
-        char rssiBuf[16];
-        sprintf(rssiBuf, "RSSI: %d", RSSI);
-        u8g2.setFont(P_FONT);
-        u8g2.drawStr(80, 12, rssiBuf);
-
-        // GPS Status - top left
-        const char *gpsStr = gpsFix ? "GPS: Active" : "GPS: Waiting...";
-        u8g2.drawStr(10, 12, gpsStr);
-
-        // Battery Icon (centered, large)
-        int bx = 34, by = 38, bw = 60, bh = 28;
-        u8g2.drawFrame(bx, by, bw, bh);            // battery body
-        u8g2.drawBox(bx + bw, by + 8, 6, bh - 16); // battery tip
-
-        // Fill battery level
-        int fillWidth = (bw - 4) * percentage / 100;
-        int fillColor = percentage > 20 ? 1 : 0; // red if low (simulate by invert)
-        if (fillColor == 0)
+        int inner_x = bx + 2;
+        int inner_w = bw - 4;
+        int fillWidth = (inner_w * percentage) / 100;
+        if (fillWidth > 0)
         {
-            u8g2.setDrawColor(0);
+            if (percentage <= 20)
+            {
+                u8g2.setDrawColor(0);
+                u8g2.drawBox(inner_x, by + 2, fillWidth, bh - 4);
+                u8g2.setDrawColor(1);
+            }
+            else
+            {
+                u8g2.drawBox(inner_x, by + 2, fillWidth, bh - 4);
+            }
         }
-        u8g2.drawBox(bx + 2, by + 2, fillWidth, bh - 4);
-        u8g2.setDrawColor(1);
 
-        // Battery % text inside battery
         char percentBuf[8];
         sprintf(percentBuf, "%d%%", percentage);
-        int percentWidth = u8g2.getStrWidth(percentBuf);
         u8g2.setFont(H_FONT);
-        u8g2.drawStr(bx + (bw - percentWidth) / 2, by + bh - 8, percentBuf);
+        u8g2.drawStr(text_x, pct_y, percentBuf);
 
-        // Battery voltage below battery
-        char voltBuf[16];
-        sprintf(voltBuf, "%.2fV", batteryVoltage);
-        int voltWidth = u8g2.getStrWidth(voltBuf);
+        char rssiBuf[20];
+        sprintf(rssiBuf, "RSSI: %d", RSSI);
         u8g2.setFont(P_FONT);
-        u8g2.drawStr(bx + (bw - voltWidth) / 2, by + bh + 12, voltBuf);
+        u8g2.drawStr(content_x, rssi_y, rssiBuf);
 
-        // Footer
-        u8g2.setFont(P_FONT);
-        u8g2.drawLine(10, 120, 118, 120);
-        u8g2.drawStr(32, 127, "Press MODE to start");
-
-        u8g2.sendBuffer();
+        const char *gpsStr = gpsFix ? "GPS: Active" : "GPS: Waiting...";
+        u8g2.drawStr(content_x, gps_y, gpsStr);
+        u8g2.setFont(H_FONT);
+        int8_t did = userDevice.getDid();
+        char didBuf[32];
+        sprintf(didBuf, "- User Device : %d -", did);
+        int didWidth = u8g2.getStrWidth(didBuf);
+        int didX = (128 - didWidth) / 2;
+        u8g2.drawStr(didX, gps_y + 16, didBuf);
 
     } while (u8g2.nextPage());
 }
+// void renderWelcome()
+// {
+//     u8g2.firstPage();
+//     do
+//     {
+//         float batteryVoltage = readBatteryVoltage();
+
+//         // Calculate battery percentage
+//         int percentage = round(((batteryVoltage - MIN_VOLTAGE) / (MAX_VOLTAGE - MIN_VOLTAGE)) * 100);
+//         if (percentage > 100)
+//             percentage = 100;
+//         if (percentage < 0)
+//             percentage = 0;
+
+//         u8g2.clearBuffer();
+
+//         // Header
+//         u8g2.setFont(H_FONT);
+//         u8g2.drawStr(32, 18, "LORA10 DEVICE");
+//         u8g2.drawLine(10, 22, 118, 22);
+
+//         // RSSI (signal strength) - top right
+//         char rssiBuf[16];
+//         sprintf(rssiBuf, "RSSI: %d", RSSI);
+//         u8g2.setFont(P_FONT);
+//         u8g2.drawStr(80, 12, rssiBuf);
+
+//         // GPS Status - top left
+//         const char *gpsStr = gpsFix ? "GPS: Active" : "GPS: Waiting...";
+//         u8g2.drawStr(10, 12, gpsStr);
+
+//         // Battery Icon (centered, large)
+//         int bx = 34, by = 38, bw = 60, bh = 28;
+//         u8g2.drawFrame(bx, by, bw, bh);            // battery body
+//         u8g2.drawBox(bx + bw, by + 8, 6, bh - 16); // battery tip
+
+//         // Fill battery level
+//         int fillWidth = (bw - 4) * percentage / 100;
+//         int fillColor = percentage > 20 ? 1 : 0; // red if low (simulate by invert)
+//         if (fillColor == 0)
+//         {
+//             u8g2.setDrawColor(0);
+//         }
+//         u8g2.drawBox(bx + 2, by + 2, fillWidth, bh - 4);
+//         u8g2.setDrawColor(1);
+
+//         // Battery % text inside battery
+//         char percentBuf[8];
+//         sprintf(percentBuf, "%d%%", percentage);
+//         int percentWidth = u8g2.getStrWidth(percentBuf);
+//         u8g2.setFont(H_FONT);
+//         u8g2.drawStr(bx + (bw - percentWidth) / 2, by + bh - 8, percentBuf);
+
+//         // Battery voltage below battery
+//         char voltBuf[16];
+//         sprintf(voltBuf, "%.2fV", batteryVoltage);
+//         int voltWidth = u8g2.getStrWidth(voltBuf);
+//         u8g2.setFont(P_FONT);
+//         u8g2.drawStr(bx + (bw - voltWidth) / 2, by + bh + 12, voltBuf);
+
+//         // Footer
+//         u8g2.setFont(P_FONT);
+//         u8g2.drawLine(10, 120, 118, 120);
+//         u8g2.drawStr(32, 127, "Press MODE to start");
+
+//         u8g2.sendBuffer();
+
+//     } while (u8g2.nextPage());
+// }
 
 void renderInbox()
 {
@@ -1020,9 +1179,10 @@ void _LoRaListenTask(void *pvParameters)
             // userDevice.setPayload(newReceivedPayload);
             if (1)
             {
-                jsonPayload = userDevice.getJsonPayload();
+                // jsonPayload = userDevice.getJsonPayload();
                 Serial.println("[Payload Received]");
-                Serial.println(jsonPayload.c_str());
+                beep();
+                // Serial.println(jsonPayload.c_str());
                 // baseDevice.printAckBucket();
             }
             // handleReceivedPayload(receivedPayload);
@@ -1088,7 +1248,13 @@ void _LoRaSendTask(void *pvParameters)
             }
             // userDevice.printPayload();
             delete receivedVec; // free when done
-            states[2][1] = 0;   // reset sending flag
+
+            if (states[2][1] == 1)
+            {
+                vTaskDelay(400 / portTICK_PERIOD_MS); // simulate sending delay
+                states[2][1] = 0;                     // reset sending flag
+                beep2();
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(100)); // Adjust delay as needed
     }
@@ -1388,7 +1554,7 @@ float readBatteryVoltage()
 void handleMessageFromBLE(const std::string &msg)
 {
     Serial.printf("Handling message from BLE (Main.cpp) : %s\n", msg.c_str());
-    userDevice.createCmsg(msg , 0);
+    userDevice.createCmsg(msg, 0);
     std::vector<int8_t> *payloadVector = new std::vector<int8_t>(userDevice.getPayload());
     xQueueSend(loraQueue, &payloadVector, portMAX_DELAY); // send selection
 }

@@ -1,40 +1,42 @@
 #include "Protocol.h"
 
 const std::vector<std::string> pmsgListForUser = {
-    "Reached checkpoint",       // 0
-    "Started hike",             // 1
-    "Taking a break",           // 2
-    "Low battery",              // 3
-    "Need help",                // 4
-    "Lost, need directions",    // 5
-    "Injured, need assistance", // 6
-    "Returning to base",        // 7
-    "Reached destination",      // 8
-    "Wild animal sighted",      // 9
-    "Rain started",             // 10
-    "Too dark to proceed",      // 11
-    "All good",                 // 12
-    "Slow progress",            // 13
-    "No GPS signal"             // 14
+    "Okay",                     // 1
+    "Yes",                      // 2
+    "No",                       // 3
+    "Need help",                // 9
+    "All good",                 // 17
+    "No GPS signal",            // 4
+    "Reached checkpoint",       // 5
+    "Started hike",             // 6
+    "Taking a break",           // 7
+    "Low battery",              // 8
+    "Lost, need directions",    // 10
+    "Injured, need assistance", // 11
+    "Returning to base",        // 12
+    "Reached destination",      // 13
+    "Wild animal sighted",      // 14
+    "Rain started",             // 15
+    "Too dark to proceed",      // 16
+    "Slow progress",            // 18
+
 };
 
 const std::vector<std::string> pmsgListForBase = {
-    "Status update?",            // 0
-    "Received your location",    // 1
-    "Help is on the way",        // 2
-    "Take shelter immediately",  // 3
-    "Return to base now",        // 4
-    "Keep moving to next point", // 5
-    "Activate emergency beacon", // 6
-    "Rescue team deployed",      // 7
-    "Check your surroundings",   // 8
-    "Repeat last message",       // 9
-    "Battery level?",            // 10
-    "No signal from you",        // 11
-    "Weather warning ahead",     // 12
-    "Rest if needed",            // 13
-    "Base station shutting down" // 14
-};
+    "Do you need help?",
+    "Come to base now!",
+    "Take a break",
+    "Please respond ASAP.",
+    "Turn right, water is available.",
+    "Turn left, water is available.",
+    "Move forward, water is available.",
+    "Move backward, water is available.",
+    "Campsite Nearby",
+    "Turn on your device",
+    "Remain at current location",
+    "First aid arriving",
+    "Leave area immediately",
+    "Seek shelter quickly"};
 
 int32_t int8ToInt32(int8_t b0, int8_t b1, int8_t b2, int8_t b3)
 {
@@ -291,6 +293,7 @@ std::string Payload::getJsonPayload()
 
     // Add data field
     oss << "\"data\": {";
+    float lat = 0.0f, lon = 0.0f; // Declare outside switch to avoid jump error
     switch (MyPayload.data[0])
     {
     case 0: // Pmsg
@@ -303,10 +306,10 @@ std::string Payload::getJsonPayload()
         break;
     case 2: // Gps
         oss << "\"type\": 2, ";
-        oss << "\"lat\": " << std::fixed << std::setprecision(4)
-            << int8ToFloat(MyPayload.data[1], MyPayload.data[2], MyPayload.data[3], MyPayload.data[4]) << ", ";
-        oss << "\"lon\": " << std::fixed << std::setprecision(4)
-            << int8ToFloat(MyPayload.data[5], MyPayload.data[6], MyPayload.data[7], MyPayload.data[8]) << " ";
+        lat = int8ToFloat(MyPayload.data[1], MyPayload.data[2], MyPayload.data[3], MyPayload.data[4]);
+        lon = int8ToFloat(MyPayload.data[5], MyPayload.data[6], MyPayload.data[7], MyPayload.data[8]);
+        oss << "\"lat\": " << std::fixed << std::setprecision(4) << lat << ", ";
+        oss << "\"lon\": " << std::fixed << std::setprecision(4) << lon << " ";
         break;
     default:
         break;
@@ -321,19 +324,21 @@ std::string Payload::getJsonPayload()
 
     return oss.str();
 }
-
 std::string Payload::getMsg(const std::vector<int8_t> &payloadVector)
 {
-    if(payloadVector[8] == 0) // Pmsg
+    if (payloadVector[8] == 0) // Pmsg
     {
         return pmsgListForUser[payloadVector[9]];
     }
-    else if(payloadVector[8] == 1) // Cmsg
+    else if (payloadVector[8] == 1) // Cmsg
     {
         return std::string(payloadVector.begin() + 10, payloadVector.end() - 1);
-    }else if(payloadVector[8] == 2){
+    }
+    else if (payloadVector[8] == 2)
+    {
         return "[GPS Cordinate]";
     }
+    return ""; // Default return to avoid warning
 }
 
 int8_t Payload::getDid()
@@ -582,12 +587,12 @@ std::vector<UserDevicePayload::Coordinate> *UserDevicePayload::getGpsBucket()
 
 void UserDevicePayload::setInboxNew(const std::string &message)
 {
-    inboxbucket.push_back( std::to_string(counter++) + ": " + message);
+    inboxbucket.push_back(std::to_string(counter++) + ": " + message);
 }
 
 void UserDevicePayload::setSentboxNew(const std::string &message)
 {
-    sentboxbucket.push_back( std::to_string(counter++) + ": " + message);
+    sentboxbucket.push_back(std::to_string(counter++) + ": " + message);
 }
 
 void UserDevicePayload::setGpsNew(const float &latitude, const float &longitude)
@@ -649,10 +654,10 @@ void UserDevicePayload::printStorage()
 
 void BaseDevicePayload::createPmsg(int8_t pmsgid, int8_t newUid, int8_t attempts)
 {
-    clearPayload();        // Clear any existing payload data
-    MyPayload.dir = 0;     // b2u
-    MyPayload.uid = newUid;   // Set User ID to device ID
-    MyPayload.fLvL = dLvL; // Set Forwarding Level to device level
+    clearPayload();         // Clear any existing payload data
+    MyPayload.dir = 0;      // b2u
+    MyPayload.uid = newUid; // Set User ID to device ID
+    MyPayload.fLvL = dLvL;  // Set Forwarding Level to device level
     MyPayload.mid = ++currentMessageId;
     MyPayload.retry = attempts; // Initialize retry count to 0
     MyPayload.data.clear();
