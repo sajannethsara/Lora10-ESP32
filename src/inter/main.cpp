@@ -202,7 +202,8 @@ unsigned long lastActivityTime = 0;
 void _LoRaListenTask(void *pvParameters);
 void _LoraSendTask(void *pvParameters);
 void _UserMessageSendTask(void *pvParameters);
-void _LCDDisplayTask(void *pvParameters);
+void _ButtonPressTask(void *pvParameters);
+// void _LCDDisplayTask(void *pvParameters);
 
 TaskHandle_t Task1;
 TaskHandle_t Task2;
@@ -210,9 +211,28 @@ TaskHandle_t Task3;
 TaskHandle_t Task4;
 
 // Pin definitions (fixed UP/DOWN swap)
+
 #define OK_BTN 32
-#define UP_BTN 33
-#define DOWN_BTN 25
+#define UP_BTN 25
+#define DOWN_BTN 33
+
+void upBtnPressed();
+void downBtnPressed();
+void okBtnPressed();
+struct ButtonConfig
+{
+    uint8_t pin;
+    const char *name;
+    uint32_t debounceMs;
+    void (*onPress)();
+    bool lastStable;
+    uint32_t lastChangeMs;
+};
+ButtonConfig buttons[] = {
+    {UP_BTN, "UP", 50, upBtnPressed, false, 0},
+    {DOWN_BTN, "DOWN", 50, downBtnPressed, false, 0},
+    {OK_BTN, "OK", 50, okBtnPressed, false, 0}};
+const size_t BUTTON_COUNT = sizeof(buttons) / sizeof(buttons[0]);
 
 #define GREEN_LED 27
 #define BLUE_LED 2
@@ -228,14 +248,11 @@ QueueHandle_t ForwardQueue;
 QueueHandle_t UserMsgQueue;
 SemaphoreHandle_t xSemaphore;
 
-const std::string pmsgListForUser[] = {
-    "Reached checkpoint", "Started hike", "Taking a break", "Low battery", "Need help",
-    "Lost, need directions", "Injured, need assistance", "Returning to base", "Reached destination",
-    "Wild animal sighted", "Rain started", "Too dark to proceed", "All good", "Slow progress",
-    "No GPS signal"};
-const int MSG_COUNT = sizeof(pmsgListForUser) / sizeof(pmsgListForUser[0]);
+std::vector<std::string> pmsgListForUser = InterDevice.getPredefinedMessagesForUser();
+const int MSG_COUNT = pmsgListForUser.size();
 
 int8_t selectedMsgIndex = 0;
+bool sendCommand = false;
 bool showSentMsg = false;
 unsigned long sentMsgTimestamp = 0;
 
@@ -246,11 +263,15 @@ void setup()
 {
     Serial.begin(115200);
 
-    pinMode(GREEN_LED, OUTPUT);
-    pinMode(BLUE_LED, OUTPUT);
-    pinMode(UP_BTN, INPUT_PULLDOWN);
-    pinMode(DOWN_BTN, INPUT_PULLDOWN);
-    pinMode(OK_BTN, INPUT_PULLDOWN);
+    for (size_t i = 0; i < BUTTON_COUNT; i++)
+    {
+        pinMode(buttons[i].pin, INPUT_PULLDOWN);
+
+        // external pulldown present
+        buttons[i].lastStable = (digitalRead(buttons[i].pin) == HIGH);
+        buttons[i].lastChangeMs = millis();
+    }
+    Serial.println("Button setup done.");
 
     LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
     if (!LoRa.begin(433E6))
@@ -259,10 +280,13 @@ void setup()
         while (1)
             ;
     }
+    LoRa.setFrequency(433E6); // or 868E6 / 915E6 depending on module & region
+    // LoRa.setTxPower(18);                         // Max for SX1278 (in dBm) — use 17–20
+    LoRa.setSpreadingFactor(13);     // 6–12 (12 = max range, min speed)
+    LoRa.setSignalBandwidth(62.5E3); // 7.8kHz–500kHz (62.5kHz = good compromise)
+    // LoRa.setCodingRate4(8);                      // 4/5–4/8 (4/8 = strongest error correction)
+    LoRa.enableCrc();
     Serial.println("LoRa init succeeded.");
-
-    LoRa.setTxPower(15);
-    LoRa.setSpreadingFactor(13);
 
     lcd.init();
     lcd.begin(16, 2);
@@ -287,8 +311,8 @@ void setup()
     xTaskCreatePinnedToCore(_LoRaListenTask, "LoRaListenTask", 8192, NULL, 1, &Task1, 0);
     xTaskCreatePinnedToCore(_LoraSendTask, "LoraSendTask", 4096, NULL, 1, &Task2, 1);
     xTaskCreatePinnedToCore(_UserMessageSendTask, "UserMsgSendTask", 4096, NULL, 1, &Task3, 1);
-    xTaskCreatePinnedToCore(_LCDDisplayTask, "LCDDisplayTask", 2048, NULL, 1, &Task4, 1);
-
+    // xTaskCreatePinnedToCore(_LCDDisplayTask, "LCDDisplayTask", 2048, NULL, 1, &Task4, 1);
+    xTaskCreatePinnedToCore(_ButtonPressTask, "ButtonPressTask", 2048, NULL, 2, &Task4, 1);
     vTaskDelay(1000 / portTICK_PERIOD_MS);
     digitalWrite(GREEN_LED, LOW);
     digitalWrite(BLUE_LED, LOW);
@@ -301,22 +325,34 @@ void _LoRaListenTask(void *pvParameters)
         int packetSize = LoRa.parsePacket();
         if (packetSize)
         {
+            Serial.print("LoRa packet received. Size: ");
+            Serial.println(packetSize);
+
             std::vector<int8_t> newReceivedPayload;
             RSSI = LoRa.packetRssi();
+            Serial.print("Packet RSSI: ");
+            Serial.println(RSSI);
 
             while (LoRa.available())
             {
-                newReceivedPayload.push_back(LoRa.read());
+                int8_t val = LoRa.read();
+                newReceivedPayload.push_back(val);
+                Serial.print("Byte received: ");
+                Serial.println(val);
             }
             blinkGREEN();
 
             if (xSemaphoreTake(xSemaphore, portMAX_DELAY))
             {
                 bool valid = InterDevice.receive(newReceivedPayload);
+                Serial.print("Payload valid: ");
+                Serial.println(valid ? "true" : "false");
                 if (valid)
                 {
                     blinkBLUE();
                     InterDevice.setPayloadForward(newReceivedPayload);
+                    InterDevice.loraSend();
+                    Serial.println("Payload forwarded.");
                 }
                 xSemaphoreGive(xSemaphore);
             }
@@ -366,95 +402,133 @@ void _UserMessageSendTask(void *pvParameters)
     }
 }
 
-void _LCDDisplayTask(void *pvParameters)
+void _ButtonPressTask(void *pvParameters)
 {
-    backLightState = true;
-    lastActivityTime = millis();
-
-    for (;;)
+    const TickType_t scanDelay = pdMS_TO_TICKS(5); // check every 5ms
+    while (true)
     {
-        bool pressed = false;
-        bool upPressed = digitalRead(UP_BTN) == HIGH;
-        bool downPressed = digitalRead(DOWN_BTN) == HIGH;
-        bool okPressed = digitalRead(OK_BTN) == HIGH;
+        uint32_t now = millis();
 
-        if (upPressed || downPressed || okPressed)
+        for (size_t i = 0; i < BUTTON_COUNT; i++)
         {
-            pressed = true;
-            lastActivityTime = millis();
+            bool read = (digitalRead(buttons[i].pin) == HIGH);
 
-            if (!backLightState)
+            if (read != buttons[i].lastStable)
             {
-                backLightState = true;
-                lcd.backlight();
+                // only update if stable long enough
+                if ((now - buttons[i].lastChangeMs) >= buttons[i].debounceMs)
+                {
+                    buttons[i].lastStable = read;
+                    buttons[i].lastChangeMs = now;
+
+                    if (read == HIGH)
+                    { // Press event
+                        Serial.println(buttons[i].name);
+                        buttons[i].onPress();
+                        blinkBLUE();
+                        // beep();
+                    }
+                }
+            }
+            else
+            {
+                // if same state, just update timestamp
+                buttons[i].lastChangeMs = now;
             }
         }
 
-        if (pressed)
-        {
-            if (upPressed)
-            {
-                selectedMsgIndex--;
-                if (selectedMsgIndex < 0)
-                    selectedMsgIndex = MSG_COUNT - 1;
-                Serial.print("Selected Message Index: ");
-                Serial.println(selectedMsgIndex);
-                vTaskDelay(200 / portTICK_PERIOD_MS);
-            }
-            else if (downPressed)
-            {
-                selectedMsgIndex++;
-                if (selectedMsgIndex >= MSG_COUNT)
-                    selectedMsgIndex = 0;
-                Serial.print("Selected Message Index: ");
-                Serial.println(selectedMsgIndex);
-                vTaskDelay(200 / portTICK_PERIOD_MS);
-            }
-            else if (okPressed && !showSentMsg)
-            {
-                Serial.print("OK Pressed. Sending message index: ");
-                Serial.println(selectedMsgIndex);
-                xQueueSend(UserMsgQueue, &selectedMsgIndex, 0);
-
-                lcd.clear();
-                lcd.print("Sent:");
-                lcd.setCursor(0, 1);
-                lcd.print(pmsgListForUser[selectedMsgIndex].c_str());
-
-                Serial.print("Sent: ");
-                Serial.println(pmsgListForUser[selectedMsgIndex].c_str());
-
-                showSentMsg = true;
-                sentMsgTimestamp = millis();
-                vTaskDelay(200 / portTICK_PERIOD_MS);
-            }
-        }
-
-        if (showSentMsg && millis() - sentMsgTimestamp >= 2000)
-        {
-            showSentMsg = false;
-            lcd.clear();
-        }
-
-        if (!showSentMsg)
-        {
-            lcd.setCursor(0, 0);
-            lcd.print("Select Msg:     ");
-            lcd.setCursor(0, 1);
-            lcd.print("                ");
-            lcd.setCursor(0, 1);
-            lcd.print(pmsgListForUser[selectedMsgIndex].c_str());
-        }
-
-        if (backLightState && (millis() - lastActivityTime > LCD_TIMEOUT))
-        {
-            backLightState = false;
-            lcd.noBacklight();
-        }
-
-        vTaskDelay(50 / portTICK_PERIOD_MS);
+        vTaskDelay(scanDelay);
     }
 }
+// void _LCDDisplayTask(void *pvParameters)
+// {
+//     backLightState = true;
+//     lastActivityTime = millis();
+
+//     for (;;)
+//     {
+//         bool pressed = false;
+//         bool upPressed = digitalRead(UP_BTN) == HIGH;
+//         bool downPressed = digitalRead(DOWN_BTN) == HIGH;
+//         bool okPressed = digitalRead(OK_BTN) == HIGH;
+
+//         if (upPressed || downPressed || okPressed)
+//         {
+//             pressed = true;
+//             lastActivityTime = millis();
+
+//             if (!backLightState)
+//             {
+//                 backLightState = true;
+//                 lcd.backlight();
+//             }
+//         }
+
+//         if (pressed)
+//         {
+//             if (upPressed)
+//             {
+//                 selectedMsgIndex--;
+//                 if (selectedMsgIndex < 0)
+//                     selectedMsgIndex = MSG_COUNT - 1;
+//                 Serial.print("Selected Message Index: ");
+//                 Serial.println(selectedMsgIndex);
+//                 vTaskDelay(200 / portTICK_PERIOD_MS);
+//             }
+//             else if (downPressed)
+//             {
+//                 selectedMsgIndex++;
+//                 if (selectedMsgIndex >= MSG_COUNT)
+//                     selectedMsgIndex = 0;
+//                 Serial.print("Selected Message Index: ");
+//                 Serial.println(selectedMsgIndex);
+//                 vTaskDelay(200 / portTICK_PERIOD_MS);
+//             }
+//             else if (okPressed && !showSentMsg)
+//             {
+//                 Serial.print("OK Pressed. Sending message index: ");
+//                 Serial.println(selectedMsgIndex);
+//                 xQueueSend(UserMsgQueue, &selectedMsgIndex, 0);
+
+//                 lcd.clear();
+//                 lcd.print("Sent:");
+//                 lcd.setCursor(0, 1);
+//                 lcd.print(pmsgListForUser[selectedMsgIndex].c_str());
+
+//                 Serial.print("Sent: ");
+//                 Serial.println(pmsgListForUser[selectedMsgIndex].c_str());
+
+//                 showSentMsg = true;
+//                 sentMsgTimestamp = millis();
+//                 vTaskDelay(200 / portTICK_PERIOD_MS);
+//             }
+//         }
+
+//         if (showSentMsg && millis() - sentMsgTimestamp >= 2000)
+//         {
+//             showSentMsg = false;
+//             lcd.clear();
+//         }
+
+//         if (!showSentMsg)
+//         {
+//             lcd.setCursor(0, 0);
+//             lcd.print("Select Msg:     ");
+//             lcd.setCursor(0, 1);
+//             lcd.print("                ");
+//             lcd.setCursor(0, 1);
+//             lcd.print(pmsgListForUser[selectedMsgIndex].c_str());
+//         }
+
+//         if (backLightState && (millis() - lastActivityTime > LCD_TIMEOUT))
+//         {
+//             backLightState = false;
+//             lcd.noBacklight();
+//         }
+
+//         vTaskDelay(50 / portTICK_PERIOD_MS);
+//     }
+// }
 
 void loop() {}
 
@@ -470,4 +544,43 @@ void blinkBLUE()
     digitalWrite(BLUE_LED, HIGH);
     vTaskDelay(100 / portTICK_PERIOD_MS);
     digitalWrite(BLUE_LED, LOW);
+}
+
+void upBtnPressed()
+{
+    selectedMsgIndex--;
+    if (selectedMsgIndex < 0)
+        selectedMsgIndex = MSG_COUNT - 1;
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Select Msg:");
+    lcd.setCursor(0, 1);
+    lcd.print(pmsgListForUser[selectedMsgIndex].c_str());
+    Serial.print("UP pressed. Selected Message Index: ");
+    Serial.println(selectedMsgIndex);
+}
+
+void downBtnPressed()
+{
+    selectedMsgIndex++;
+    if (selectedMsgIndex >= MSG_COUNT)
+        selectedMsgIndex = 0;
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Select Msg:");
+    lcd.setCursor(0, 1);
+    lcd.print(pmsgListForUser[selectedMsgIndex].c_str());
+    Serial.print("DOWN pressed. Selected Message Index: ");
+    Serial.println(selectedMsgIndex);
+}
+
+void okBtnPressed()
+{
+    xQueueSend(UserMsgQueue, &selectedMsgIndex, 0);
+    lcd.clear();
+    lcd.print("Sent:");
+    lcd.setCursor(0, 1);
+    lcd.print(pmsgListForUser[selectedMsgIndex].c_str());
+    Serial.print("OK pressed. Sent: ");
+    Serial.println(pmsgListForUser[selectedMsgIndex].c_str());
 }

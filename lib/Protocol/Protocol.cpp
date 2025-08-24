@@ -36,7 +36,8 @@ const std::vector<std::string> pmsgListForBase = {
     "Remain at current location",
     "First aid arriving",
     "Leave area immediately",
-    "Seek shelter quickly"};
+    "Seek shelter quickly"
+};
 
 int32_t int8ToInt32(int8_t b0, int8_t b1, int8_t b2, int8_t b3)
 {
@@ -100,7 +101,12 @@ int8_t Payload::calChecksumFromPayload()
 }
 bool Payload::verifyChecksum(const std::vector<int8_t> &payloadVector)
 {
-    return payloadVector.back() == calChecksumFromVector(payloadVector);
+    if(payloadVector.back() == calChecksumFromVector(payloadVector)){
+        Serial.println("Checksum verified.");
+        return true;
+    }
+    Serial.println("Checksum verification failed.");
+    return false;
 }
 // bool Payload::conformAck(const std::vector<int8_t> &payloadVector)
 // {
@@ -117,24 +123,41 @@ bool Payload::verifyChecksum(const std::vector<int8_t> &payloadVector)
 
 bool Payload::conformAck(const std::vector<int8_t> &payloadVector)
 {
-    if (payloadVector.size() < 8)
+    if (payloadVector.size() < 8) {
+        Serial.println("[conformAck] Invalid payload size, ignoring.");
         return true; // invalid payload, ignore
+    }
 
     int8_t uid = payloadVector[0];
     int32_t mid = int8ToInt32(payloadVector[4], payloadVector[5], payloadVector[6], payloadVector[7]);
 
+    Serial.print("[conformAck] Checking for ACK: UID=");
+    Serial.print(uid);
+    Serial.print(", MID=");
+    Serial.println(mid);
+
     for (int i = 0; i < ackCount; i++)
     {
+        Serial.print("[conformAck] Comparing with bucket: UID=");
+        Serial.print(ackbucket[i].uid);
+        Serial.print(", MID=");
+        Serial.println(ackbucket[i].mid);
+
         if (ackbucket[i].uid == uid && ackbucket[i].mid == mid)
         {
+            Serial.print("[conformAck] ACK match found at index ");
+            Serial.println(i);
+
             // Remove by shifting left
             for (int j = i; j < ackCount - 1; j++)
                 ackbucket[j] = ackbucket[j + 1];
 
             ackCount--;
+            Serial.println("[conformAck] ACK removed from bucket.");
             return false; // Found ACK
         }
     }
+    Serial.println("[conformAck] No ACK match found.");
     return true; // No ACK match
 }
 
@@ -458,29 +481,41 @@ bool UserDevicePayload::verifyRelation(const std::vector<int8_t> &payloadVector)
 bool InterDevicePayload::verifyRelation(std::vector<int8_t> payloadVector)
 {
     int8_t msgLvL = payloadVector[2];
+    Serial.print("[InterDevicePayload::verifyRelation] dLvL: ");
+    Serial.print(dLvL);
+    Serial.print(", msgLvL: ");
+    Serial.print(msgLvL);
+    Serial.print(", dir: ");
+    Serial.println(payloadVector[0]);
+
     if (payloadVector[0] == 0) // b2u
     {
         if (dLvL > msgLvL)
         {
+            Serial.println("b2u: dLvL > msgLvL, PASS");
             return true;
         }
         else
         {
-            return false; // If the device level is not higher than the message level, do not accept
+            Serial.println("b2u: dLvL <= msgLvL, FAIL");
+            return false;
         }
     }
     else if (payloadVector[0] == 1) // u2b
     {
         if (dLvL < msgLvL)
         {
+            Serial.println("u2b: dLvL < msgLvL, PASS");
             return true;
         }
         else
         {
-            return false; // If the device level is not lower than the message level, do not accept
+            Serial.println("u2b: dLvL >= msgLvL, FAIL");
+            return false;
         }
     }
-    return false; // Default return value if none of the conditions are met
+    Serial.println("Unknown direction, FAIL");
+    return false;
 }
 
 void UserDevicePayload::receive(const std::vector<int8_t> &payloadVector)
@@ -546,10 +581,10 @@ bool InterDevicePayload::receive(std::vector<int8_t> payloadVector)
 {
     // Process the received payload
     bool pass1 = Payload::verifyChecksum(payloadVector);
-    bool pass2 = Payload::conformAck(payloadVector);
+    // bool pass2 = Payload::conformAck(payloadVector);
     bool pass3 = InterDevicePayload::verifyRelation(payloadVector);
 
-    if (pass1 && !pass2 && pass3)
+    if (pass1 && pass3)
     {
         return setPayload(payloadVector);
         // if (p) return Payload::getJsonPayload(payloadVector);

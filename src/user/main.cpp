@@ -101,10 +101,11 @@ static const float ARRIVE_DIST_METERS = 5.0f;
 int pathIndex = 0;
 int targetIndex = -1;
 int startp = 2;
-volatile float heading = 0.0f;     // updated by CompassTask (deg)
-volatile float navDistance = 0.0f; // distance to current target (m)
-volatile float navBearing = 0.0f;  // bearing to current target (deg)
-volatile float navHeading = 0.0f;  // current compass heading (deg)
+volatile float heading = 0.0f;        // updated by CompassTask (deg)
+volatile float navDistance = 0.0f;    // distance to current target (m)
+volatile float navBearing = 0.0f;     // bearing to current target (deg)
+volatile float navHeading = 0.0f;     // current compass heading (deg)
+volatile float compassHeading = 0.0f; // degrees 0..360, written by _CompassTask, read by renderCompass()
 
 // OLED
 // U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);
@@ -259,6 +260,13 @@ void setup()
         while (1)
             ;
     }
+    LoRa.setFrequency(433E6); // or 868E6 / 915E6 depending on module & region
+    // LoRa.setTxPower(18);                         // Max for SX1278 (in dBm) — use 17–20
+    LoRa.setSpreadingFactor(13);     // 6–12 (12 = max range, min speed)
+    LoRa.setSignalBandwidth(62.5E3); // 7.8kHz–500kHz (62.5kHz = good compromise)
+    // LoRa.setCodingRate4(8);                      // 4/5–4/8 (4/8 = strongest error correction)
+    LoRa.enableCrc();
+    // ensure CRC check
     rtc_gpio_pulldown_en((gpio_num_t)LORA_DIO0); // Stabilize DIO0
     rtc_gpio_pullup_dis((gpio_num_t)LORA_DIO0);
     LoRa.receive();
@@ -275,14 +283,13 @@ void setup()
     gpsMutex = xSemaphoreCreateMutex();
     loraQueue = xQueueCreate(10, sizeof(std::vector<int8_t> *));
     // core 0 system , core 1 user
-    xTaskCreatePinnedToCore(_LoRaListenTask, "LoRaListenTask", 8192, NULL, 1, &Task5, 0); // xTaskCreatePinnedToCore(_BleCommunicationTask, "BleCommunicationTask", 2048, nullptr, 1, nullptr, 1);
-    xTaskCreatePinnedToCore(_LoRaSendTask, "LoRaSendTask", 2048, NULL, 1, &Task1, 0);     // xTaskCreatePinnedToCore(_BleCommunicationTask, "BleCommunicationTask", 2048, nullptr, 1, nullptr, 1);
+    xTaskCreatePinnedToCore(_LoRaListenTask, "LoRaListenTask", 8192, NULL, 3, &Task5, 0);
+    xTaskCreatePinnedToCore(_LoRaSendTask, "LoRaSendTask", 2048, NULL, 1, &Task1, 0);
     xTaskCreatePinnedToCore(_GpsUpdateTask, "GpsUpdateTask", 4096, NULL, 1, &Task4, 1);
-
     xTaskCreatePinnedToCore(_ButtonPressTask, "ButtonPressTask", 2048, NULL, 2, &Task2, 1);
     xTaskCreatePinnedToCore(_OledDisplayTask, "OledDisplayTask", 4096, NULL, 1, &Task3, 1);
-    // xTaskCreatePinnedToCore(_SleepManagerTask, "SleepManagerTask", 4096, NULL, 2, &SleepManagerTaskHandle, 1);
     xTaskCreatePinnedToCore(_BackNavigationTask, "BackNavigationTask", 4096, NULL, 2, &Task6, 0);
+    // xTaskCreatePinnedToCore(_SleepManagerTask, "SleepManagerTask", 4096, NULL, 2, &SleepManagerTaskHandle, 1);
 
     // digitalWrite(BLUE_LED, HIGH);
     vTaskDelay(1000 / portTICK_PERIOD_MS);
@@ -478,7 +485,7 @@ void okBtnPressed()
             }
             else
             {
-                states[3][1] = 0; // Reset detail flag
+                states[3][1] = 2; // Reset detail flag
             }
         }
         else if (page == 4) // SentBox
@@ -932,46 +939,45 @@ void renderCompass()
     {
         // Header
         u8g2.setFont(H_FONT);
-        u8g2.drawStr(startp, 16, "BACK NAVIGATION");
+        u8g2.drawStr(startp, 16, "SELECT MODE");
         u8g2.drawLine(0, 18, 127, 18);
 
+        // --- Selection prompt ---
         if (states[3][1] == 0)
         {
-            // --- Prompt to start reverse navigation ---
             u8g2.setFont(P_FONT);
-            u8g2.drawStr(startp, 36, "Do you want to start");
-            u8g2.drawStr(startp, 48, "back navigation?");
+            u8g2.drawStr(startp, 36, "Select the mode.");
 
-            // Option 0: "No" at y = 62
+            // Option 0: "Compass"
             if (states[3][0] == 0)
             {
-                u8g2.drawBox(0, 54, 128, 12);
+                u8g2.drawBox(0, 30, 128, 14); // highlight box
                 u8g2.setDrawColor(0);
-                u8g2.drawStr(6, 63, "No");
+                u8g2.drawStr(6, 40, "Compass");
                 u8g2.setDrawColor(1);
             }
             else
             {
-                u8g2.drawStr(6, 63, "No");
+                u8g2.drawStr(6, 40, "Compass");
             }
 
-            // Option 1: "Yes" at y = 56
+            // Option 1: "Back Navigation"
             if (states[3][0] == 1)
             {
-                u8g2.drawBox(0, 66, 128, 12);
+                u8g2.drawBox(0, 46, 128, 14); // highlight box
                 u8g2.setDrawColor(0);
-                u8g2.drawStr(6, 75, "Yes");
+                u8g2.drawStr(6, 56, "Back Navigation");
                 u8g2.setDrawColor(1);
             }
             else
             {
-                u8g2.drawStr(6, 75, "Yes");
+                u8g2.drawStr(6, 56, "Back Navigation");
             }
         }
-        else
+        // --- Reverse (back) navigation mode ---
+        else if (states[3][1] == 1)
         {
-            // --- Reverse navigation is ON ---
-            float localBearing, localHeading, localDist;
+            float localBearing = 0.0f, localHeading = 0.0f, localDist = 0.0f;
 
             if (xSemaphoreTake(gpsMutex, pdMS_TO_TICKS(50)) == pdTRUE)
             {
@@ -981,7 +987,7 @@ void renderCompass()
                 xSemaphoreGive(gpsMutex);
             }
 
-            // Center of compass circle
+            // Center of navigation arrow
             int cx = 64;
             int cy = 50;
             int len = 20;
@@ -989,10 +995,10 @@ void renderCompass()
             // Draw center point
             u8g2.drawCircle(cx, cy, 2, 1);
 
-            // Calculate needle end point
+            // Calculate needle end point (bearing relative to heading)
             float angleRad = radians(localBearing - localHeading + 360.0f);
-            int ax = cx + len * sin(angleRad);
-            int ay = cy - len * cos(angleRad);
+            int ax = cx + (int)(len * sin(angleRad));
+            int ay = cy - (int)(len * cos(angleRad));
 
             // Draw needle
             u8g2.drawLine(cx, cy, ax, ay);
@@ -1004,9 +1010,181 @@ void renderCompass()
             u8g2.print(localDist, 1);
             u8g2.print(" m");
         }
+        // --- Compass mode (normal compass) ---
+        else if (states[3][1] == 2)
+        {
+            // Read the latest heading safely (degrees 0..360)
+            float localHeadingDeg = 0.0f;
+            if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(50)) == pdTRUE)
+            {
+                localHeadingDeg = compassHeading;
+                xSemaphoreGive(i2cMutex);
+            }
+            else
+            {
+                localHeadingDeg = compassHeading; // fallback, small staleness acceptable
+            }
 
+            // Normalise to [0,360)
+            if (!isfinite(localHeadingDeg))
+                localHeadingDeg = 0.0f;
+            while (localHeadingDeg < 0.0f)
+                localHeadingDeg += 360.0f;
+            while (localHeadingDeg >= 360.0f)
+                localHeadingDeg -= 360.0f;
+
+            // Draw compass face
+            const int cx = 64; // center x
+            const int cy = 40; // center y (a bit higher to fit header + degree text)
+            const int radius = 22;
+            const int tickOut = 4; // tick length
+            const int arrowLen = 18;
+
+            // Outer circle and center dot
+            u8g2.drawCircle(cx, cy, radius, U8G2_DRAW_ALL);
+            u8g2.drawDisc(cx, cy, 2, U8G2_DRAW_ALL);
+
+            // Draw 8 direction ticks and labels
+            const char *labels[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+            u8g2.setFont(P_FONT);
+            int labelRadius = radius + 10;
+            for (int i = 0; i < 8; ++i)
+            {
+                float angDeg = i * 45.0f; // 0,45,90...
+                float angRad = radians(angDeg);
+                // tick endpoints (from inner to outer)
+                int tx1 = cx + (int)((radius - tickOut) * sin(angRad));
+                int ty1 = cy - (int)((radius - tickOut) * cos(angRad));
+                int tx2 = cx + (int)((radius)*sin(angRad));
+                int ty2 = cy - (int)((radius)*cos(angRad));
+                u8g2.drawLine(tx1, ty1, tx2, ty2);
+
+                // label position
+                int lx = cx + (int)(labelRadius * sin(angRad));
+                int ly = cy - (int)(labelRadius * cos(angRad));
+                // Slight manual shifts for better centering
+                if (i == 0)
+                    u8g2.drawStr(lx - 3, ly + 4, labels[i]); // N
+                else if (i == 2)
+                    u8g2.drawStr(lx - 3, ly + 4, labels[i]); // E
+                else if (i == 4)
+                    u8g2.drawStr(lx - 3, ly + 4, labels[i]); // S
+                else if (i == 6)
+                    u8g2.drawStr(lx - 6, ly + 4, labels[i]); // W (shift more)
+                else
+                    u8g2.drawStr(lx - 6, ly + 4, labels[i]); // diagonals
+            }
+
+            // Draw arrow pointing to current heading (0° = North up)
+            float angleRad = radians(localHeadingDeg);
+            int ax = cx + (int)(arrowLen * sin(angleRad));
+            int ay = cy - (int)(arrowLen * cos(angleRad));
+            u8g2.drawLine(cx, cy, ax, ay);
+
+            // Arrow head (simple lines)
+            float headOffset = 0.14f; // radians ~8°
+            int leftx = cx + (int)((arrowLen - 5) * sin(angleRad + headOffset));
+            int lefty = cy - (int)((arrowLen - 5) * cos(angleRad + headOffset));
+            int rightx = cx + (int)((arrowLen - 5) * sin(angleRad - headOffset));
+            int righty = cy - (int)((arrowLen - 5) * cos(angleRad - headOffset));
+            u8g2.drawLine(ax, ay, leftx, lefty);
+            u8g2.drawLine(ax, ay, rightx, righty);
+
+            // Numeric heading display (degrees) below the compass
+            u8g2.setFont(P_FONT);
+            int dispDeg = (int)round(localHeadingDeg) % 360;
+            if (dispDeg < 0)
+                dispDeg += 360;
+            char degBuf[10];
+            snprintf(degBuf, sizeof(degBuf), "%d%c", dispDeg, 176); // degree symbol
+            int textx = cx - (u8g2.getStrWidth(degBuf) / 2);
+            int texty = cy + radius + 12;
+            u8g2.drawStr(textx, texty, degBuf);
+        }
     } while (u8g2.nextPage());
 }
+// void renderCompass()
+// {
+//     u8g2.firstPage();
+//     do
+//     {
+//         // Header
+//         u8g2.setFont(H_FONT);
+//         u8g2.drawStr(startp, 16, "BACK NAVIGATION");
+//         u8g2.drawLine(0, 18, 127, 18);
+
+//         if (states[3][1] == 0)
+//         {
+//             // --- Prompt to start reverse navigation ---
+//             u8g2.setFont(P_FONT);
+//             u8g2.drawStr(startp, 36, "Do you want to start");
+//             u8g2.drawStr(startp, 48, "back navigation?");
+
+//             // Option 0: "No" at y = 62
+//             if (states[3][0] == 0)
+//             {
+//                 u8g2.drawBox(0, 54, 128, 12);
+//                 u8g2.setDrawColor(0);
+//                 u8g2.drawStr(6, 63, "No");
+//                 u8g2.setDrawColor(1);
+//             }
+//             else
+//             {
+//                 u8g2.drawStr(6, 63, "No");
+//             }
+
+//             // Option 1: "Yes" at y = 56
+//             if (states[3][0] == 1)
+//             {
+//                 u8g2.drawBox(0, 66, 128, 12);
+//                 u8g2.setDrawColor(0);
+//                 u8g2.drawStr(6, 75, "Yes");
+//                 u8g2.setDrawColor(1);
+//             }
+//             else
+//             {
+//                 u8g2.drawStr(6, 75, "Yes");
+//             }
+//         }
+//         else
+//         {
+//             // --- Reverse navigation is ON ---
+//             float localBearing, localHeading, localDist;
+
+//             if (xSemaphoreTake(gpsMutex, pdMS_TO_TICKS(50)) == pdTRUE)
+//             {
+//                 localBearing = navBearing;
+//                 localHeading = navHeading;
+//                 localDist = navDistance;
+//                 xSemaphoreGive(gpsMutex);
+//             }
+
+//             // Center of compass circle
+//             int cx = 64;
+//             int cy = 50;
+//             int len = 20;
+
+//             // Draw center point
+//             u8g2.drawCircle(cx, cy, 2, 1);
+
+//             // Calculate needle end point
+//             float angleRad = radians(localBearing - localHeading + 360.0f);
+//             int ax = cx + len * sin(angleRad);
+//             int ay = cy - len * cos(angleRad);
+
+//             // Draw needle
+//             u8g2.drawLine(cx, cy, ax, ay);
+
+//             // Distance info
+//             u8g2.setFont(P_FONT);
+//             u8g2.setCursor(5, 10 + 15); // just below header
+//             u8g2.print("Dist: ");
+//             u8g2.print(localDist, 1);
+//             u8g2.print(" m");
+//         }
+
+//     } while (u8g2.nextPage());
+// }
 
 void renderSent()
 {
@@ -1262,18 +1440,49 @@ void _LoRaSendTask(void *pvParameters)
 
 void _BackNavigationTask(void *pvParameters)
 {
+    // snapshot variables are kept static so they persist across iterations
+    static bool reverseSnapshotTaken = false;
+    static std::vector<UserDevicePayload::Coordinate> reverseBucket;
+
     for (;;)
     {
         if (states[3][1] == 1 && page == 3)
         {
             Serial.println("[BackNavigation] Active");
+
+            // If we haven't taken the snapshot yet, do it now (copy gpsBucket)
+            if (!reverseSnapshotTaken)
+            {
+                // copy the current gpsBucket into reverseBucket under gpsMutex
+                if (xSemaphoreTake(gpsMutex, portMAX_DELAY) == pdTRUE)
+                {
+                    // safe copy of the entire trail
+                    reverseBucket = *gpsBucket; // copy constructor
+                    // initialize targetIndex similarly to your previous logic
+                    int localPathIndex = (int)reverseBucket.size() - 1;
+                    if (targetIndex < 0)
+                    {
+                        targetIndex = (localPathIndex >= 1) ? (localPathIndex - 1) : -1;
+                    }
+                    xSemaphoreGive(gpsMutex);
+                    reverseSnapshotTaken = true;
+                    Serial.println("[BackNavigation] Snapshot taken");
+                }
+                else
+                {
+                    // Couldn't take gpsMutex - try again next loop
+                    vTaskDelay(pdMS_TO_TICKS(200));
+                    continue;
+                }
+            }
+
             // read sensors
             int16_t magX, magY, magZ;
             int16_t accX, accY, accZ;
             readMagnetometer(magX, magY, magZ);
             readAccelerometer(accX, accY, accZ);
 
-            // tilt compensation
+            // tilt compensation (unchanged)
             float axn = (float)accX;
             float ayn = (float)accY;
             float azn = (float)accZ;
@@ -1290,38 +1499,64 @@ void _BackNavigationTask(void *pvParameters)
             if (newHeading < 0)
                 newHeading += 360.0f;
 
-            heading = newHeading;              // update global heading
-            navHeading = newHeading;           // also mirror to navHeading for reverse nav usage
-            pathIndex = gpsBucket->size() - 1; // update pathIndex from gpsBucket size
+            // update heading globals (unchanged)
+            heading = newHeading;
+            navHeading = newHeading;
 
-            if (pathIndex >= 0)
+            // pathIndex now comes from the snapshot if present, otherwise fall back (shouldn't happen during reverse nav)
+            int pathIndexLocal = -1;
+            if (reverseSnapshotTaken)
             {
-                // initialize targetIndex if not set
+                pathIndexLocal = (int)reverseBucket.size() - 1;
+            }
+            else
+            {
+                // fallback to live gpsBucket (kept for safety; original behavior)
+                pathIndexLocal = (int)gpsBucket->size() - 1;
+            }
+
+            if (pathIndexLocal >= 0)
+            {
+                // initialize targetIndex if not set (we already tried to set it during snapshot, but keep the check)
                 if (targetIndex < 0)
                 {
                     if (xSemaphoreTake(gpsMutex, portMAX_DELAY) == pdTRUE)
                     {
-                        targetIndex = pathIndex - 1;
+                        targetIndex = (pathIndexLocal >= 1) ? (pathIndexLocal - 1) : -1;
                         xSemaphoreGive(gpsMutex);
                     }
                 }
-                // current GPS read (no gpsMutex required to read TinyGPS directly)
 
-                // copy target waypoint safely
+                // copy target waypoint safely from the correct bucket (snapshot preferred)
                 UserDevicePayload::Coordinate tgt;
                 if (xSemaphoreTake(gpsMutex, portMAX_DELAY) == pdTRUE)
                 {
-                    if (targetIndex >= 0 && targetIndex < pathIndex)
+                    bool valid = false;
+                    if (reverseSnapshotTaken)
                     {
-                        tgt = (*gpsBucket)[targetIndex];
+                        if (targetIndex >= 0 && targetIndex < (int)reverseBucket.size())
+                        {
+                            tgt = reverseBucket[targetIndex];
+                            valid = true;
+                        }
                     }
                     else
                     {
-                        // no valid target
+                        if (targetIndex >= 0 && targetIndex < pathIndexLocal)
+                        {
+                            tgt = (*gpsBucket)[targetIndex];
+                            valid = true;
+                        }
+                    }
+
+                    if (!valid)
+                    {
+                        // no valid target -> release mutex and wait briefly
                         xSemaphoreGive(gpsMutex);
                         vTaskDelay(pdMS_TO_TICKS(200));
                         continue;
                     }
+
                     xSemaphoreGive(gpsMutex);
                 }
                 else
@@ -1330,7 +1565,7 @@ void _BackNavigationTask(void *pvParameters)
                     continue;
                 }
 
-                // compute distance & bearing
+                // compute distance & bearing (unchanged)
                 float dist = distanceBetween(currentDeviceGPS.latitude, currentDeviceGPS.longitude, tgt.latitude, tgt.longitude);
                 float bearing = calculateBearing(currentDeviceGPS.latitude, currentDeviceGPS.longitude, tgt.latitude, tgt.longitude);
 
@@ -1348,15 +1583,192 @@ void _BackNavigationTask(void *pvParameters)
                     navDistance = dist;
                     navBearing = bearing;
                     navHeading = currHeadingLocal;
+
                     // if arrived at this waypoint, decrement targetIndex
                     if (dist <= ARRIVE_DIST_METERS && targetIndex > 0)
                     {
                         targetIndex--;
                     }
+
                     xSemaphoreGive(gpsMutex);
                 }
             }
         }
+        else
+        {
+            // If reverse nav is not active or we left page 3, clear the snapshot
+            // so the next time reverse nav is entered we take a fresh copy.
+            // This keeps the snapshot lifetime bound to the reverse-nav session.
+            static bool wasSnapshotCleared = false;
+            if (!wasSnapshotCleared)
+            {
+                // Clear snapshot and reset related indices
+                // (No mutex needed to clear reverseBucket since only this task touches reverseBucket)
+                reverseBucket.clear();
+                reverseSnapshotTaken = false;
+                targetIndex = -1; // reset so we'll re-initialize when entering reverse nav again
+                wasSnapshotCleared = true;
+                Serial.println("[BackNavigation] Snapshot cleared");
+            }
+            // reset the flag so next time through when reverse nav becomes active we will take snapshot
+            if (states[3][1] == 1 && page == 3)
+                wasSnapshotCleared = false;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(300));
+    }
+}
+// void _BackNavigationTask(void *pvParameters)
+// {
+//     for (;;)
+//     {
+//         if (states[3][1] == 1 && page == 3)
+//         {
+//             Serial.println("[BackNavigation] Active");
+//             // read sensors
+//             int16_t magX, magY, magZ;
+//             int16_t accX, accY, accZ;
+//             readMagnetometer(magX, magY, magZ);
+//             readAccelerometer(accX, accY, accZ);
+
+//             // tilt compensation
+//             float axn = (float)accX;
+//             float ayn = (float)accY;
+//             float azn = (float)accZ;
+//             float norm = sqrt(axn * axn + ayn * ayn + azn * azn);
+//             if (norm == 0.0f)
+//                 norm = 1.0f;
+//             axn /= norm;
+//             ayn /= norm;
+//             azn /= norm;
+
+//             float xh = (float)magX * azn - (float)magZ * axn;
+//             float yh = (float)magY * azn - (float)magZ * ayn;
+//             float newHeading = atan2(yh, xh) * 180.0f / PI;
+//             if (newHeading < 0)
+//                 newHeading += 360.0f;
+
+//             heading = newHeading;              // update global heading
+//             navHeading = newHeading;           // also mirror to navHeading for reverse nav usage
+//             pathIndex = gpsBucket->size() - 1; // update pathIndex from gpsBucket size
+
+//             if (pathIndex >= 0)
+//             {
+//                 // initialize targetIndex if not set
+//                 if (targetIndex < 0)
+//                 {
+//                     if (xSemaphoreTake(gpsMutex, portMAX_DELAY) == pdTRUE)
+//                     {
+//                         targetIndex = pathIndex - 1;
+//                         xSemaphoreGive(gpsMutex);
+//                     }
+//                 }
+//                 // current GPS read (no gpsMutex required to read TinyGPS directly)
+
+//                 // copy target waypoint safely
+//                 UserDevicePayload::Coordinate tgt;
+//                 if (xSemaphoreTake(gpsMutex, portMAX_DELAY) == pdTRUE)
+//                 {
+//                     if (targetIndex >= 0 && targetIndex < pathIndex)
+//                     {
+//                         tgt = (*gpsBucket)[targetIndex];
+//                     }
+//                     else
+//                     {
+//                         // no valid target
+//                         xSemaphoreGive(gpsMutex);
+//                         vTaskDelay(pdMS_TO_TICKS(200));
+//                         continue;
+//                     }
+//                     xSemaphoreGive(gpsMutex);
+//                 }
+//                 else
+//                 {
+//                     vTaskDelay(pdMS_TO_TICKS(200));
+//                     continue;
+//                 }
+
+//                 // compute distance & bearing
+//                 float dist = distanceBetween(currentDeviceGPS.latitude, currentDeviceGPS.longitude, tgt.latitude, tgt.longitude);
+//                 float bearing = calculateBearing(currentDeviceGPS.latitude, currentDeviceGPS.longitude, tgt.latitude, tgt.longitude);
+
+//                 // read current heading under i2cMutex (avoid racing with CompassTask)
+//                 float currHeadingLocal = heading;
+//                 if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(50)) == pdTRUE)
+//                 {
+//                     currHeadingLocal = heading;
+//                     xSemaphoreGive(i2cMutex);
+//                 }
+
+//                 // update globals (protected by gpsMutex)
+//                 if (xSemaphoreTake(gpsMutex, pdMS_TO_TICKS(50)) == pdTRUE)
+//                 {
+//                     navDistance = dist;
+//                     navBearing = bearing;
+//                     navHeading = currHeadingLocal;
+//                     // if arrived at this waypoint, decrement targetIndex
+//                     if (dist <= ARRIVE_DIST_METERS && targetIndex > 0)
+//                     {
+//                         targetIndex--;
+//                     }
+//                     xSemaphoreGive(gpsMutex);
+//                 }
+//             }
+//         }
+//         vTaskDelay(pdMS_TO_TICKS(300));
+//     }
+// }
+
+void _CompassTask(void *pvParameters)
+{
+    for (;;)
+    {
+        // Run only when Compass mode is active and compass page is visible
+        if (states[3][1] == 2 && page == 3)
+        {
+            // read sensors (use the same sensor-read helpers you already have)
+            int16_t magX, magY, magZ;
+            int16_t accX, accY, accZ;
+            readMagnetometer(magX, magY, magZ);
+            readAccelerometer(accX, accY, accZ);
+
+            // ---- tilt compensation ----
+            float axn = (float)accX;
+            float ayn = (float)accY;
+            float azn = (float)accZ;
+
+            float norm = sqrt(axn * axn + ayn * ayn + azn * azn);
+            if (norm == 0.0f)
+                norm = 1.0f;
+            axn /= norm;
+            ayn /= norm;
+            azn /= norm;
+
+            // compute horizontal magnetometer components (tilt-compensated)
+            float xh = (float)magX * azn - (float)magZ * axn;
+            float yh = (float)magY * azn - (float)magZ * ayn;
+
+            // heading in degrees (0..360, 0 = North)
+            float newHeading = atan2(yh, xh) * 180.0f / PI;
+            if (newHeading < 0.0f)
+                newHeading += 360.0f;
+
+            // ---- update shared global under mutex to avoid races with render/other tasks ----
+            if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(50)) == pdTRUE)
+            {
+                heading = newHeading;        // keep existing global consistent
+                compassHeading = newHeading; // this is what renderCompass() should read
+                xSemaphoreGive(i2cMutex);
+            }
+            else
+            {
+                // If we can't grab the mutex, still update the volatile so UI gets approximate value
+                heading = newHeading;
+                compassHeading = newHeading;
+            }
+        }
+
+        // match update rate of reverse nav (about 3 Hz)
         vTaskDelay(pdMS_TO_TICKS(300));
     }
 }
