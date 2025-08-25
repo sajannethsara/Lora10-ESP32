@@ -939,16 +939,12 @@ void renderCompass()
     u8g2.firstPage();
     do
     {
-        // Header
-        u8g2.setFont(H_FONT);
-        u8g2.drawStr(startp, 16, "NAVIGATION");
-        u8g2.drawLine(0, 18, 127, 18);
-
         // --- Selection prompt ---
         if (states[3][1] == 0)
         {
-            // u8g2.setFont(P_FONT);
-            // u8g2.drawStr(startp, 36, "Select the mode.");
+            u8g2.setFont(H_FONT);
+            u8g2.drawStr(startp, 16, "NAVIGATION");
+            u8g2.drawLine(0, 18, 127, 18);
 
             // Option 0: "Compass"
             if (states[3][0] == 0)
@@ -977,6 +973,7 @@ void renderCompass()
             }
         }
         // --- Reverse (back) navigation mode ---
+
         else if (states[3][1] == 1)
         {
             float localBearing = 0.0f, localHeading = 0.0f, localDist = 0.0f;
@@ -989,29 +986,59 @@ void renderCompass()
                 xSemaphoreGive(gpsMutex);
             }
 
-            // Center of navigation arrow
-            int cx = 64;
-            int cy = 50;
-            int len = 20;
+            // Center the compass in a 128x128 display
+            const int cx = 64;          // center X
+            const int cy = 64;          // center Y (middle of 128)
+            const int radius = 36;      // circle radius (adjust if you want larger/smaller)
+            const int len = radius - 8; // needle length (keeps needle inside circle)
 
-            // Draw center point
-            u8g2.drawCircle(cx, cy, 2, 1);
+            u8g2.setFont(H_FONT);
+            u8g2.drawStr(startp, 16, "BACK NAVIGATION");
+            u8g2.drawLine(0, 18, 127, 18);
 
-            // Calculate needle end point (bearing relative to heading)
-            float angleRad = radians(localBearing - localHeading + 360.0f);
+            // Draw compass circle and center dot
+            u8g2.drawCircle(cx, cy, radius, 1); // outer circle
+            u8g2.drawCircle(cx, cy, 2, 1);      // small center point
+
+            // Compute normalized angle (bearing relative to heading)
+            float angleDeg = localBearing - localHeading;
+            while (angleDeg < 0.0f)
+                angleDeg += 360.0f;
+            while (angleDeg >= 360.0f)
+                angleDeg -= 360.0f;
+            float angleRad = radians(angleDeg);
+
+            // Needle end point (sin/cos: X to right, Y downwards so subtract for screen coords)
             int ax = cx + (int)(len * sin(angleRad));
             int ay = cy - (int)(len * cos(angleRad));
 
-            // Draw needle
+            // Draw the needle
             u8g2.drawLine(cx, cy, ax, ay);
 
-            // Distance info
+            // (Optional) draw a short tail for the needle so direction is clearer
+            int tailLen = len / 4;
+            int bx = cx - (int)(tailLen * sin(angleRad));
+            int by = cy + (int)(tailLen * cos(angleRad));
+            u8g2.drawLine(cx, cy, bx, by);
+
+            // Distance text centered under the compass
             u8g2.setFont(P_FONT);
-            u8g2.setCursor(5, 10 + 15); // just below header
-            u8g2.print("Dist: ");
-            u8g2.print(localDist, 1);
-            u8g2.print(" m");
+            char distBuf[32];
+            snprintf(distBuf, sizeof(distBuf), "Dist: %.1f m", localDist);
+
+            int textW = u8g2.getStrWidth(distBuf); // string pixel width
+            int textH = u8g2.getMaxCharHeight();   // font height
+            int textX = cx - (textW / 2);
+            int textY = cy + radius + 6 + textH; // a little padding below circle
+
+            // Ensure we don't write off-screen (clamp)
+            if (textY > 127)
+                textY = 127;
+
+            u8g2.setCursor(textX, textY);
+            u8g2.print(distBuf);
         }
+
         // --- Compass mode (normal compass) ---
         else if (states[3][1] == 2)
         {
@@ -1035,12 +1062,16 @@ void renderCompass()
             while (localHeadingDeg >= 360.0f)
                 localHeadingDeg -= 360.0f;
 
-            // Draw compass face
-            const int cx = 64; // center x
-            const int cy = 40; // center y (a bit higher to fit header + degree text)
-            const int radius = 22;
+            // Draw compass face centered in the 128x128 display
+            const int cx = 64;     // center x (middle of 128)
+            const int cy = 64;     // center y (middle of 128)
+            const int radius = 36; // larger radius to use more of the screen
             const int tickOut = 4; // tick length
-            const int arrowLen = 18;
+            const int arrowLen = radius - 6;
+
+            u8g2.setFont(H_FONT);
+            u8g2.drawStr(startp, 16, "COMPASS");
+            u8g2.drawLine(0, 18, 127, 18);
 
             // Outer circle and center dot
             u8g2.drawCircle(cx, cy, radius, U8G2_DRAW_ALL);
@@ -1049,7 +1080,7 @@ void renderCompass()
             // Draw 8 direction ticks and labels
             const char *labels[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
             u8g2.setFont(P_FONT);
-            int labelRadius = radius + 10;
+            int labelRadius = radius + 12;
             for (int i = 0; i < 8; ++i)
             {
                 float angDeg = i * 45.0f; // 0,45,90...
@@ -1057,24 +1088,24 @@ void renderCompass()
                 // tick endpoints (from inner to outer)
                 int tx1 = cx + (int)((radius - tickOut) * sin(angRad));
                 int ty1 = cy - (int)((radius - tickOut) * cos(angRad));
-                int tx2 = cx + (int)((radius)*sin(angRad));
-                int ty2 = cy - (int)((radius)*cos(angRad));
-                u8g2.drawLine(tx1, ty1, tx2, ty2);
+        int tx2 = cx + (int)((radius) * sin(angRad));
+        int ty2 = cy - (int)((radius) * cos(angRad));
+        u8g2.drawLine(tx1, ty1, tx2, ty2);
 
-                // label position
-                int lx = cx + (int)(labelRadius * sin(angRad));
-                int ly = cy - (int)(labelRadius * cos(angRad));
-                // Slight manual shifts for better centering
-                if (i == 0)
-                    u8g2.drawStr(lx - 3, ly + 4, labels[i]); // N
-                else if (i == 2)
-                    u8g2.drawStr(lx - 3, ly + 4, labels[i]); // E
-                else if (i == 4)
-                    u8g2.drawStr(lx - 3, ly + 4, labels[i]); // S
-                else if (i == 6)
-                    u8g2.drawStr(lx - 6, ly + 4, labels[i]); // W (shift more)
-                else
-                    u8g2.drawStr(lx - 6, ly + 4, labels[i]); // diagonals
+        // label position
+        int lx = cx + (int)(labelRadius * sin(angRad));
+        int ly = cy - (int)(labelRadius * cos(angRad));
+        // Slight manual shifts for better centering
+        if (i == 0)
+            u8g2.drawStr(lx - 3, ly + 4, labels[i]); // N
+        else if (i == 2)
+            u8g2.drawStr(lx - 3, ly + 4, labels[i]); // E
+        else if (i == 4)
+            u8g2.drawStr(lx - 3, ly + 4, labels[i]); // S
+        else if (i == 6)
+            u8g2.drawStr(lx - 6, ly + 4, labels[i]); // W (shift more)
+        else
+            u8g2.drawStr(lx - 6, ly + 4, labels[i]); // diagonals
             }
 
             // Draw arrow pointing to current heading (0° = North up)
@@ -1092,19 +1123,199 @@ void renderCompass()
             u8g2.drawLine(ax, ay, leftx, lefty);
             u8g2.drawLine(ax, ay, rightx, righty);
 
-            // Numeric heading display (degrees) below the compass
+            // Numeric heading display (degrees) at the bottom of the screen
             u8g2.setFont(P_FONT);
             int dispDeg = (int)round(localHeadingDeg) % 360;
             if (dispDeg < 0)
                 dispDeg += 360;
             char degBuf[10];
             snprintf(degBuf, sizeof(degBuf), "%d%c", dispDeg, 176); // degree symbol
+
             int textx = cx - (u8g2.getStrWidth(degBuf) / 2);
-            int texty = cy + radius + 12;
+            int texty = 127 - 2; // baseline near the bottom row (leave small padding)
+            if (texty > 127)
+                texty = 127;
+            if (textx < 0)
+                textx = 0;
+            if (textx + u8g2.getStrWidth(degBuf) > 127)
+                textx = 127 - u8g2.getStrWidth(degBuf);
+
             u8g2.drawStr(textx, texty, degBuf);
         }
+
     } while (u8g2.nextPage());
 }
+// void renderCompass()
+// {
+//     u8g2.firstPage();
+//     do
+//     {
+//         // Header
+//         u8g2.setFont(H_FONT);
+//         u8g2.drawStr(startp, 16, "NAVIGATION");
+//         u8g2.drawLine(0, 18, 127, 18);
+
+//         // --- Selection prompt ---
+//         if (states[3][1] == 0)
+//         {
+//             // u8g2.setFont(P_FONT);
+//             // u8g2.drawStr(startp, 36, "Select the mode.");
+
+//             // Option 0: "Compass"
+//             if (states[3][0] == 0)
+//             {
+//                 u8g2.drawBox(0, 30, 128, 14); // highlight box
+//                 u8g2.setDrawColor(0);
+//                 u8g2.drawStr(6, 40, "Compass");
+//                 u8g2.setDrawColor(1);
+//             }
+//             else
+//             {
+//                 u8g2.drawStr(6, 40, "Compass");
+//             }
+
+//             // Option 1: "Back Navigation"
+//             if (states[3][0] == 1)
+//             {
+//                 u8g2.drawBox(0, 46, 128, 14); // highlight box
+//                 u8g2.setDrawColor(0);
+//                 u8g2.drawStr(6, 56, "Back Navigation");
+//                 u8g2.setDrawColor(1);
+//             }
+//             else
+//             {
+//                 u8g2.drawStr(6, 56, "Back Navigation");
+//             }
+//         }
+//         // --- Reverse (back) navigation mode ---
+//         else if (states[3][1] == 1)
+//         {
+//             float localBearing = 0.0f, localHeading = 0.0f, localDist = 0.0f;
+
+//             if (xSemaphoreTake(gpsMutex, pdMS_TO_TICKS(50)) == pdTRUE)
+//             {
+//                 localBearing = navBearing;
+//                 localHeading = navHeading;
+//                 localDist = navDistance;
+//                 xSemaphoreGive(gpsMutex);
+//             }
+
+//             // Center of navigation arrow
+//             int cx = 64;
+//             int cy = 50;
+//             int len = 20;
+
+//             // Draw center point
+//             u8g2.drawCircle(cx, cy, 2, 1);
+
+//             // Calculate needle end point (bearing relative to heading)
+//             float angleRad = radians(localBearing - localHeading + 360.0f);
+//             int ax = cx + (int)(len * sin(angleRad));
+//             int ay = cy - (int)(len * cos(angleRad));
+
+//             // Draw needle
+//             u8g2.drawLine(cx, cy, ax, ay);
+
+//             // Distance info
+//             u8g2.setFont(P_FONT);
+//             u8g2.setCursor(5, 10 + 15); // just below header
+//             u8g2.print("Dist: ");
+//             u8g2.print(localDist, 1);
+//             u8g2.print(" m");
+//         }
+//         // --- Compass mode (normal compass) ---
+//         else if (states[3][1] == 2)
+//         {
+//             // Read the latest heading safely (degrees 0..360)
+//             float localHeadingDeg = 0.0f;
+//             if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(50)) == pdTRUE)
+//             {
+//                 localHeadingDeg = compassHeading;
+//                 xSemaphoreGive(i2cMutex);
+//             }
+//             else
+//             {
+//                 localHeadingDeg = compassHeading; // fallback, small staleness acceptable
+//             }
+
+//             // Normalise to [0,360)
+//             if (!isfinite(localHeadingDeg))
+//                 localHeadingDeg = 0.0f;
+//             while (localHeadingDeg < 0.0f)
+//                 localHeadingDeg += 360.0f;
+//             while (localHeadingDeg >= 360.0f)
+//                 localHeadingDeg -= 360.0f;
+
+//             // Draw compass face
+//             const int cx = 64; // center x
+//             const int cy = 40; // center y (a bit higher to fit header + degree text)
+//             const int radius = 22;
+//             const int tickOut = 4; // tick length
+//             const int arrowLen = 18;
+
+//             // Outer circle and center dot
+//             u8g2.drawCircle(cx, cy, radius, U8G2_DRAW_ALL);
+//             u8g2.drawDisc(cx, cy, 2, U8G2_DRAW_ALL);
+
+//             // Draw 8 direction ticks and labels
+//             const char *labels[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+//             u8g2.setFont(P_FONT);
+//             int labelRadius = radius + 10;
+//             for (int i = 0; i < 8; ++i)
+//             {
+//                 float angDeg = i * 45.0f; // 0,45,90...
+//                 float angRad = radians(angDeg);
+//                 // tick endpoints (from inner to outer)
+//                 int tx1 = cx + (int)((radius - tickOut) * sin(angRad));
+//                 int ty1 = cy - (int)((radius - tickOut) * cos(angRad));
+//                 int tx2 = cx + (int)((radius)*sin(angRad));
+//                 int ty2 = cy - (int)((radius)*cos(angRad));
+//                 u8g2.drawLine(tx1, ty1, tx2, ty2);
+
+//                 // label position
+//                 int lx = cx + (int)(labelRadius * sin(angRad));
+//                 int ly = cy - (int)(labelRadius * cos(angRad));
+//                 // Slight manual shifts for better centering
+//                 if (i == 0)
+//                     u8g2.drawStr(lx - 3, ly + 4, labels[i]); // N
+//                 else if (i == 2)
+//                     u8g2.drawStr(lx - 3, ly + 4, labels[i]); // E
+//                 else if (i == 4)
+//                     u8g2.drawStr(lx - 3, ly + 4, labels[i]); // S
+//                 else if (i == 6)
+//                     u8g2.drawStr(lx - 6, ly + 4, labels[i]); // W (shift more)
+//                 else
+//                     u8g2.drawStr(lx - 6, ly + 4, labels[i]); // diagonals
+//             }
+
+//             // Draw arrow pointing to current heading (0° = North up)
+//             float angleRad = radians(localHeadingDeg);
+//             int ax = cx + (int)(arrowLen * sin(angleRad));
+//             int ay = cy - (int)(arrowLen * cos(angleRad));
+//             u8g2.drawLine(cx, cy, ax, ay);
+
+//             // Arrow head (simple lines)
+//             float headOffset = 0.14f; // radians ~8°
+//             int leftx = cx + (int)((arrowLen - 5) * sin(angleRad + headOffset));
+//             int lefty = cy - (int)((arrowLen - 5) * cos(angleRad + headOffset));
+//             int rightx = cx + (int)((arrowLen - 5) * sin(angleRad - headOffset));
+//             int righty = cy - (int)((arrowLen - 5) * cos(angleRad - headOffset));
+//             u8g2.drawLine(ax, ay, leftx, lefty);
+//             u8g2.drawLine(ax, ay, rightx, righty);
+
+//             // Numeric heading display (degrees) below the compass
+//             u8g2.setFont(P_FONT);
+//             int dispDeg = (int)round(localHeadingDeg) % 360;
+//             if (dispDeg < 0)
+//                 dispDeg += 360;
+//             char degBuf[10];
+//             snprintf(degBuf, sizeof(degBuf), "%d%c", dispDeg, 176); // degree symbol
+//             int textx = cx - (u8g2.getStrWidth(degBuf) / 2);
+//             int texty = cy + radius + 12;
+//             u8g2.drawStr(textx, texty, degBuf);
+//         }
+//     } while (u8g2.nextPage());
+// }
 // void renderCompass()
 // {
 //     u8g2.firstPage();
