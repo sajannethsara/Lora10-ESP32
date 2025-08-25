@@ -527,7 +527,7 @@ void _LoRaListenTask(void *pvParameters)
             lastLoRaActivity = millis();
             RSSI = LoRa.packetRssi();
             int snr = LoRa.packetSnr();
-            Serial.printf("[LoRa] RSSI: %d, SNR: %d\n", RSSI, snr);
+            Serial.printf("--------[LoRa Received] RSSI: %d, SNR: %d --------\n", RSSI, snr);
 
             std::vector<int8_t> newReceivedPayload;
             newReceivedPayload.reserve(receivedPayload.length);
@@ -538,6 +538,7 @@ void _LoRaListenTask(void *pvParameters)
             }
 
             bool valid = baseDevice.receive(newReceivedPayload);
+            printf("Payload Valid : %s\n", valid ? "[True]" : "[False]");
             if (valid)
             {
                 baseDevice.setPayload(newReceivedPayload);
@@ -546,7 +547,8 @@ void _LoRaListenTask(void *pvParameters)
 
                 setMostRecentMsg(msg, uid);
 
-                Serial.println("[LoRa] Valid payload received:");
+                // Serial.println("[LoRa] Valid payload received:");
+                
                 Serial.println(baseDevice.getJsonPayload().c_str());
 
                 beep3();
@@ -555,10 +557,12 @@ void _LoRaListenTask(void *pvParameters)
 
                 String msgStr = String(msg.c_str());
                 displayText(msgStr.substring(0, LCD_COLUMNS), 1);
+                baseDevice.printAckBucket();
             }
             else
             {
-                Serial.println("[LoRa] Invalid payload received");
+                // Serial.println("[LoRa] Invalid payload received");
+                baseDevice.printAckBucket();
             }
         }
     }

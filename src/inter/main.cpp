@@ -325,20 +325,18 @@ void _LoRaListenTask(void *pvParameters)
         int packetSize = LoRa.parsePacket();
         if (packetSize)
         {
-            Serial.print("LoRa packet received. Size: ");
+            Serial.print("-------[LoRa Received]------- | ");
             Serial.println(packetSize);
 
             std::vector<int8_t> newReceivedPayload;
             RSSI = LoRa.packetRssi();
-            Serial.print("Packet RSSI: ");
-            Serial.println(RSSI);
+            // Serial.print("Packet RSSI: ");
+            // Serial.println(RSSI);
 
             while (LoRa.available())
             {
                 int8_t val = LoRa.read();
                 newReceivedPayload.push_back(val);
-                Serial.print("Byte received: ");
-                Serial.println(val);
             }
             blinkGREEN();
 
@@ -351,8 +349,13 @@ void _LoRaListenTask(void *pvParameters)
                 {
                     blinkBLUE();
                     InterDevice.setPayloadForward(newReceivedPayload);
+                    std::string jsonPayload = InterDevice.getJsonPayload();
                     InterDevice.loraSend();
-                    Serial.println("Payload forwarded.");
+                    // Serial.println("Payload forwarded.");
+                    Serial.print("Forwarded JSON: ");
+                    Serial.println(jsonPayload.c_str());
+                    InterDevice.printAckBucket();
+                    Serial.println("-----------------------------");
                 }
                 xSemaphoreGive(xSemaphore);
             }

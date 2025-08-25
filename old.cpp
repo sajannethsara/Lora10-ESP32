@@ -637,3 +637,56 @@ void updateInbox(int8_t senderID, int16_t transactionID, std::string messageCont
     }
     xSemaphoreGive(xSemaphore);
   } }
+
+
+  void _CompassTask(void *pvParameters)
+{
+    for (;;)
+    {
+        // Run only when Compass mode is active and compass page is visible
+        if (states[3][1] == 2 && page == 3)
+        {
+            // read sensors (use the same sensor-read helpers you already have)
+            int16_t magX, magY, magZ;
+            int16_t accX, accY, accZ;
+            readMagnetometer(magX, magY, magZ);
+            readAccelerometer(accX, accY, accZ);
+
+            // ---- tilt compensation ----
+            float axn = (float)accX;
+            float ayn = (float)accY;
+            float azn = (float)accZ;
+
+            float norm = sqrt(axn * axn + ayn * ayn + azn * azn);
+            if (norm == 0.0f) norm = 1.0f;
+            axn /= norm;
+            ayn /= norm;
+            azn /= norm;
+
+            // compute horizontal magnetometer components (tilt-compensated)
+            float xh = (float)magX * azn - (float)magZ * axn;
+            float yh = (float)magY * azn - (float)magZ * ayn;
+
+            // heading in degrees (0..360, 0 = North)
+            float newHeading = atan2(yh, xh) * 180.0f / PI;
+            if (newHeading < 0.0f) newHeading += 360.0f;
+
+            // ---- update shared global under mutex to avoid races with render/other tasks ----
+            if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(50)) == pdTRUE)
+            {
+                heading = newHeading;       // keep existing global consistent
+                compassHeading = newHeading; // this is what renderCompass() should read
+                xSemaphoreGive(i2cMutex);
+            }
+            else
+            {
+                // If we can't grab the mutex, still update the volatile so UI gets approximate value
+                heading = newHeading;
+                compassHeading = newHeading;
+            }
+        }
+
+        // match update rate of reverse nav (about 3 Hz)
+        vTaskDelay(pdMS_TO_TICKS(300));
+    }
+}

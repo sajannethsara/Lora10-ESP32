@@ -5,7 +5,7 @@
 #include <vector>
 #include <algorithm>
 #include <sstream>
-#include <iomanip> 
+#include <iomanip>
 #include <LoRa.h>
 
 #define MAX_ACKS 10
@@ -16,8 +16,6 @@ protected: // List of messages
     int type;
     int did;
     int dLvL;
-    int32_t currentMessageId = 1023;
-    int counter = 0; // Current message ID
     struct myPayload
     {
         int8_t dir;               // Direction of the message
@@ -36,9 +34,10 @@ protected: // List of messages
     };
     int ackCount = 0;
     AckItem ackbucket[MAX_ACKS];
+    int32_t currentMessageId = 1023;
+    int counter = 0; // Current message ID
 
 public:
-
     void clearPayload();
     int8_t calChecksumFromVector(const std::vector<int8_t> &payloadVector);
     int8_t calChecksumFromPayload();
@@ -67,22 +66,6 @@ public:
     std::vector<std::string> getPredefinedMessagesForBase();
 };
 
-/*
-    device types:
-    0 - base Device , ids - 0 , LvL = 0
-    1-inter Device ,ids 1-26 , LvL = 1-26
-    2-user Device , ids 27-127, LvL = 127
-
-    b2u - 0
-    u2b - 1
-
-    data types:
-    pmsg - 0
-    cmsg - 1
-    gps - 2
-
-*/
-
 class UserDevicePayload : public Payload
 {
 public:
@@ -104,7 +87,8 @@ public:
 
     bool verifyRelation(const std::vector<int8_t> &payloadVector);
     // receive payload from base device only pmsg and cmsg
-    void receive(const std::vector<int8_t> &payloadVector);
+    bool receive(const std::vector<int8_t> &payloadVector);
+    void setPayloadForward(std::vector<int8_t> payloadVector);
 
     std::vector<std::string> *getInboxBucket();
     std::vector<std::string> *getSentboxBucket();
@@ -138,6 +122,24 @@ public:
     int8_t getUid(const std::vector<int8_t> &payloadVector);
 
     bool receive(const std::vector<int8_t> &payloadVector);
+    bool verifyRelation(std::vector<int8_t> payloadVector);
+
 };
 
 #endif
+
+/*
+    device types:
+    0 - base Device , ids - 0 , LvL = 0
+    1-inter Device ,ids 1-26 , LvL = 1-26
+    2-user Device , ids 27-127, LvL = 127
+
+    b2u - 0
+    u2b - 1
+
+    data types:
+    pmsg - 0
+    cmsg - 1
+    gps - 2
+
+*/

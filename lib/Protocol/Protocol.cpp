@@ -102,10 +102,10 @@ int8_t Payload::calChecksumFromPayload()
 bool Payload::verifyChecksum(const std::vector<int8_t> &payloadVector)
 {
     if(payloadVector.back() == calChecksumFromVector(payloadVector)){
-        Serial.println("Checksum verified.");
+        // Serial.println("Checksum verified.");
         return true;
     }
-    Serial.println("Checksum verification failed.");
+    // Serial.println("Checksum verification failed.");
     return false;
 }
 // bool Payload::conformAck(const std::vector<int8_t> &payloadVector)
@@ -125,40 +125,23 @@ bool Payload::conformAck(const std::vector<int8_t> &payloadVector)
 {
     if (payloadVector.size() < 8) {
         Serial.println("[conformAck] Invalid payload size, ignoring.");
-        return true; // invalid payload, ignore
+        return true;
     }
 
-    int8_t uid = payloadVector[0];
+    int8_t uid = payloadVector[1];
     int32_t mid = int8ToInt32(payloadVector[4], payloadVector[5], payloadVector[6], payloadVector[7]);
 
-    Serial.print("[conformAck] Checking for ACK: UID=");
-    Serial.print(uid);
-    Serial.print(", MID=");
-    Serial.println(mid);
-
-    for (int i = 0; i < ackCount; i++)
-    {
-        Serial.print("[conformAck] Comparing with bucket: UID=");
-        Serial.print(ackbucket[i].uid);
-        Serial.print(", MID=");
-        Serial.println(ackbucket[i].mid);
-
-        if (ackbucket[i].uid == uid && ackbucket[i].mid == mid)
-        {
-            Serial.print("[conformAck] ACK match found at index ");
-            Serial.println(i);
-
-            // Remove by shifting left
-            for (int j = i; j < ackCount - 1; j++)
+    for (int i = 0; i < ackCount; ++i) {
+        if (ackbucket[i].uid == uid && ackbucket[i].mid == mid) {
+            // Remove ACK by shifting left
+            for (int j = i; j < ackCount - 1; ++j) {
                 ackbucket[j] = ackbucket[j + 1];
-
-            ackCount--;
-            Serial.println("[conformAck] ACK removed from bucket.");
-            return false; // Found ACK
+            }
+            --ackCount;
+            return false; // ACK found and removed
         }
     }
-    Serial.println("[conformAck] No ACK match found.");
-    return true; // No ACK match
+    return true; // No ACK match found
 }
 
 void Payload::printAckBucket()
@@ -478,87 +461,67 @@ bool UserDevicePayload::verifyRelation(const std::vector<int8_t> &payloadVector)
 // b2u - 0
 // u2b - 1
 
-bool InterDevicePayload::verifyRelation(std::vector<int8_t> payloadVector)
+bool BaseDevicePayload::verifyRelation(std::vector<int8_t> payloadVector)
 {
-    int8_t msgLvL = payloadVector[2];
-    Serial.print("[InterDevicePayload::verifyRelation] dLvL: ");
-    Serial.print(dLvL);
-    Serial.print(", msgLvL: ");
-    Serial.print(msgLvL);
-    Serial.print(", dir: ");
-    Serial.println(payloadVector[0]);
+    int8_t msgDir = payloadVector[0];
+    // int8_t msgLvL = payloadVector[2];
+    // int8_t msgUid = payloadVector[1];
 
-    if (payloadVector[0] == 0) // b2u
+    if (msgDir == 0) // b2u
     {
-        if (dLvL > msgLvL)
-        {
-            Serial.println("b2u: dLvL > msgLvL, PASS");
-            return true;
-        }
-        else
-        {
-            Serial.println("b2u: dLvL <= msgLvL, FAIL");
-            return false;
-        }
+        return false;
     }
-    else if (payloadVector[0] == 1) // u2b
+    else if (msgDir == 1) // u2b
     {
-        if (dLvL < msgLvL)
-        {
-            Serial.println("u2b: dLvL < msgLvL, PASS");
-            return true;
-        }
-        else
-        {
-            Serial.println("u2b: dLvL >= msgLvL, FAIL");
-            return false;
-        }
+        return true;
     }
-    Serial.println("Unknown direction, FAIL");
     return false;
 }
 
-void UserDevicePayload::receive(const std::vector<int8_t> &payloadVector)
+bool InterDevicePayload::verifyRelation(std::vector<int8_t> payloadVector)
+{
+    int8_t msgLvL = payloadVector[2];
+
+    if (payloadVector[0] == 0) // b2u
+    {
+        return dLvL > msgLvL;
+    }
+    else if (payloadVector[0] == 1) // u2b
+    {
+        return dLvL < msgLvL;
+    }
+    return false;
+}
+bool UserDevicePayload::receive(const std::vector<int8_t> &payloadVector)
 { // receive payload from base device only pmsg and cmsg
-    Serial.println("[UserDevicePayload::receive] Start");
     bool pass1 = Payload::verifyChecksum(payloadVector);
-    Serial.print("Checksum verification: ");
-    Serial.println(pass1 ? "PASS" : "FAIL");
-
     bool pass2 = Payload::conformAck(payloadVector);
-    Serial.print("ACK conformity: ");
-    Serial.println(pass2 ? "NO MATCH" : "MATCH");
-
     bool pass3 = UserDevicePayload::verifyRelation(payloadVector);
-    Serial.print("Relation verification: ");
-    Serial.println(pass3 ? "PASS" : "FAIL");
-
+        Serial.printf("Checksum: %s, ACK: %s, Relation: %s\n",
+                  pass1 ? "PASS" : "FAIL",
+                  pass2 ? "NO MATCH" : "MATCHED",
+                  pass3 ? "PASS" : "FAIL");
     if (pass1 && pass2 && pass3)
     {
-        Serial.println("All checks passed. Processing payload...");
         if (payloadVector[8] == 0) // pmsg
         {
-            Serial.print("Received Pmsg: ");
-            Serial.println(pmsgListForBase[payloadVector[9]].c_str());
-            // inboxbucket.push_back(pmsgListForBase[payloadVector[9]]);
+            Payload::addAck(payloadVector);
             setInboxNew(pmsgListForBase[payloadVector[9]]); // Add to inbox
+            // setPayloadForward(payloadVector);
+            // loraSend();
         }
         else if (payloadVector[8] == 1) // cmsg
         {
+            Payload::addAck(payloadVector);
             std::string message(payloadVector.begin() + 9, payloadVector.end() - 1); // Exclude checksum
-            Serial.print("Received Cmsg: ");
-            Serial.println(message.c_str());
             setInboxNew(message);
+            // setPayloadForward(payloadVector);
+            // loraSend();
         }
         setPayload(payloadVector); // Set the payload after processing
-        Serial.println("Payload set successfully.");
-        // forwardPayload(); // Set the payload after processing
+        return true;
     }
-    else
-    {
-        Serial.println("Payload checks failed. Not processing.");
-    }
-    Serial.println("[UserDevicePayload::receive] End");
+    return false; // Indicate failure
 }
 
 bool BaseDevicePayload::receive(const std::vector<int8_t> &payloadVector)
@@ -566,8 +529,15 @@ bool BaseDevicePayload::receive(const std::vector<int8_t> &payloadVector)
     // Process the received payload
     bool pass1 = Payload::verifyChecksum(payloadVector);
     bool pass2 = Payload::conformAck(payloadVector);
-    if (pass1 && pass2)
+    bool pass3 = BaseDevicePayload::verifyRelation(payloadVector);
+    Serial.printf("Checksum: %s, ACK: %s, Relation: %s\n",
+                  pass1 ? "PASS" : "FAIL",
+                  pass2 ? "NO MATCH" : "MATCHED",
+                  pass3 ? "PASS" : "FAIL");
+
+    if (pass1 && pass2 && pass3)
     {
+        Payload::addAck(payloadVector);
         return setPayload(payloadVector);
         // if (p) return Payload::getJsonPayload(payloadVector);
     }
@@ -581,13 +551,18 @@ bool InterDevicePayload::receive(std::vector<int8_t> payloadVector)
 {
     // Process the received payload
     bool pass1 = Payload::verifyChecksum(payloadVector);
-    // bool pass2 = Payload::conformAck(payloadVector);
+    bool pass2 = Payload::conformAck(payloadVector);
     bool pass3 = InterDevicePayload::verifyRelation(payloadVector);
+    Serial.printf("Checksum: %s, ACK: %s, Relation: %s\n",
+                  pass1 ? "PASS" : "FAIL",
+                  pass2 ? "NO MATCH" : "MATCHED",
+                  pass3 ? "PASS" : "FAIL");
 
-    if (pass1 && pass3)
+    if (pass1 && pass2 && pass3)
     {
+        // addAck(payloadVector);
         return setPayload(payloadVector);
-        // if (p) return Payload::getJsonPayload(payloadVector);
+        // if (p) return Payload::getJsonPayload(payloadVector); 
     }
     else
     {
@@ -596,6 +571,14 @@ bool InterDevicePayload::receive(std::vector<int8_t> payloadVector)
 }
 
 void InterDevicePayload::setPayloadForward(std::vector<int8_t> payloadVector)
+{
+    setPayload(payloadVector);
+    MyPayload.retry++;
+    MyPayload.fLvL = dLvL; // Set Forwarding Level to device level
+    setChecksum();         // Set the checksum after populating MyPayload
+}
+
+void UserDevicePayload::setPayloadForward(std::vector<int8_t> payloadVector)
 {
     setPayload(payloadVector);
     MyPayload.retry++;
